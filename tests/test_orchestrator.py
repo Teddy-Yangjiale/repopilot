@@ -28,6 +28,7 @@ def test_end_to_end_task_is_persisted(sample_repo: Path, tmp_path: Path) -> None
     completed, report = orchestrator.run(state)
 
     assert completed.stage == TaskStage.COMPLETED
+    assert completed.query_expansion.strategy.value == "explicit"
     assert completed.evidence
     assert all(item.status == VerificationStatus.VERIFIED for item in completed.verification)
     assert report.exists()

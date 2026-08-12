@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "repopilot"
-version = "0.1.0"
+version = "0.2.0"
 description = "Evidence-driven repository maintenance agent scaffold"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -22,7 +22,7 @@ dev = [
   "pytest>=8.3,<10.0",
   "ruff>=0.8,<1.0",
 ]
-llm = ["hello-agents>=1.0.0"]
+llm = ["hello-agents>=1.0.0,<2.0.0"]
 
 [project.scripts]
 repopilot = "repopilot.cli:app"

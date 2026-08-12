@@ -17,6 +17,7 @@ def render_markdown(state: TaskState, snapshot: GitSnapshot) -> str:
         f"- Git: `{snapshot.branch}` / `{snapshot.head[:12]}` / dirty=`{snapshot.dirty}`",
         f"- Question: {state.question}",
         f"- Keywords: {', '.join(state.keywords) or '(none)' }",
+        f"- Query strategy: `{state.query_expansion.strategy.value}`",
         "",
         "## Verified findings",
         "",
@@ -54,7 +55,7 @@ def render_markdown(state: TaskState, snapshot: GitSnapshot) -> str:
             "",
             "## Scope and limitations",
             "",
-            "This Phase 1 report proves text-level source matches only. It does not yet prove "
+            "This report proves text-level source matches only. It does not yet prove "
             "runtime execution, performance impact, issue intent, or test coverage. Those require "
             "call-graph analysis, GitHub evidence and controlled execution in later phases.",
             "",

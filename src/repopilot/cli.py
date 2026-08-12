@@ -6,6 +6,7 @@ from typing import Annotated
 import typer
 
 from repopilot.container import get_orchestrator
+from repopilot.query_expansion import LLMConfigurationError
 
 app = typer.Typer(help="Evidence-driven repository maintenance agent.")
 
@@ -15,14 +16,23 @@ def investigate(
     repo: Annotated[Path, typer.Option(exists=True, file_okay=False, resolve_path=True)],
     question: Annotated[str, typer.Option(min=3)],
     keyword: Annotated[list[str] | None, typer.Option("--keyword", "-k")] = None,
+    use_llm: Annotated[
+        bool,
+        typer.Option("--use-llm/--no-llm", help="Use DeepSeek to expand search candidates."),
+    ] = False,
 ) -> None:
     """Create and run a repository investigation."""
     orchestrator = get_orchestrator()
-    state = orchestrator.create_task(repo, question, keyword)
-    final_state, report = orchestrator.run(state)
+    state = orchestrator.create_task(repo, question, keyword, use_llm=use_llm)
+    try:
+        final_state, report = orchestrator.run(state)
+    except LLMConfigurationError as exc:
+        typer.echo(f"Configuration error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
     typer.echo(f"task_id={final_state.task_id}")
     typer.echo(f"stage={final_state.stage.value}")
     typer.echo(f"evidence={len(final_state.evidence)}")
+    typer.echo(f"query_strategy={final_state.query_expansion.strategy.value}")
     typer.echo(f"report={report}")
 
 

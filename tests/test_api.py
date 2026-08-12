@@ -33,3 +33,4 @@ def test_investigation_api(sample_repo: Path, tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json()["task"]["stage"] == "completed"
+    assert response.json()["task"]["use_llm"] is False

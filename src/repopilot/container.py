@@ -3,9 +3,13 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from repopilot.agents import InvestigatorAgent, PlannerAgent, VerifierAgent
 from repopilot.config import Settings
+from repopilot.llm import HelloAgentsKeywordGenerator
 from repopilot.orchestrator import RepoPilotOrchestrator
+from repopilot.query_expansion import HybridQueryExpander
 from repopilot.store import TaskStore
 from repopilot.tools import CodeSearchTool, GitInspector
 
@@ -14,10 +18,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 @lru_cache(maxsize=1)
 def get_orchestrator() -> RepoPilotOrchestrator:
+    load_dotenv(PROJECT_ROOT / ".env", override=False)
     settings = Settings()
     state_dir = settings.resolve_state_dir(PROJECT_ROOT)
     investigator = InvestigatorAgent(
         search_tool=CodeSearchTool(),
+        query_expander=HybridQueryExpander(generator=HelloAgentsKeywordGenerator()),
         max_results_per_keyword=settings.max_search_results,
         context_lines=settings.context_lines,
         timeout_seconds=settings.search_timeout_seconds,

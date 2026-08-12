@@ -8,13 +8,14 @@ from pydantic import BaseModel, Field
 from repopilot.container import get_orchestrator
 from repopilot.models import TaskState
 
-app = FastAPI(title="RepoPilot", version="0.1.0")
+app = FastAPI(title="RepoPilot", version="0.2.0")
 
 
 class InvestigateRequest(BaseModel):
     repo_path: Path
     question: str = Field(min_length=3)
     keywords: list[str] = Field(default_factory=list, max_length=10)
+    use_llm: bool = False
 
 
 class TaskResponse(BaseModel):
@@ -32,7 +33,10 @@ def investigate(request: InvestigateRequest) -> TaskResponse:
     orchestrator = get_orchestrator()
     try:
         state = orchestrator.create_task(
-            request.repo_path, request.question, request.keywords
+            request.repo_path,
+            request.question,
+            request.keywords,
+            use_llm=request.use_llm,
         )
         state, report = orchestrator.run(state)
         return TaskResponse(task=state, report_path=report)

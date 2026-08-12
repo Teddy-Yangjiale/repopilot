@@ -30,10 +30,19 @@ class RepoPilotOrchestrator:
         self.report_dir = report_dir
 
     def create_task(
-        self, repo_path: Path, question: str, keywords: list[str] | None = None
+        self,
+        repo_path: Path,
+        question: str,
+        keywords: list[str] | None = None,
+        use_llm: bool = False,
     ) -> TaskState:
         root = resolve_repo_root(repo_path)
-        state = TaskState(repo_path=root, question=question, keywords=keywords or [])
+        state = TaskState(
+            repo_path=root,
+            question=question,
+            keywords=keywords or [],
+            use_llm=use_llm,
+        )
         self.store.save(state)
         return state
 

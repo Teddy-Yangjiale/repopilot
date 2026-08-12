@@ -27,6 +27,24 @@ class VerificationStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class QueryExpansionStrategy(StrEnum):
+    EXPLICIT = "explicit"
+    DETERMINISTIC = "deterministic"
+    HYBRID = "hybrid"
+    HYBRID_FALLBACK = "hybrid_fallback"
+
+
+class QueryExpansionTrace(BaseModel):
+    """Auditable record of how repository search terms were selected."""
+
+    strategy: QueryExpansionStrategy = QueryExpansionStrategy.DETERMINISTIC
+    baseline_keywords: list[str] = Field(default_factory=list)
+    llm_keywords: list[str] = Field(default_factory=list)
+    model: str | None = None
+    latency_ms: int | None = Field(default=None, ge=0)
+    warning: str | None = None
+
+
 class Evidence(BaseModel):
     id: str = Field(default_factory=lambda: f"ev-{uuid4().hex[:10]}")
     path: str
@@ -72,6 +90,8 @@ class TaskState(BaseModel):
     repo_path: Path
     question: str = Field(min_length=3)
     keywords: list[str] = Field(default_factory=list)
+    use_llm: bool = False
+    query_expansion: QueryExpansionTrace = Field(default_factory=QueryExpansionTrace)
     stage: TaskStage = TaskStage.CREATED
     evidence: list[Evidence] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)

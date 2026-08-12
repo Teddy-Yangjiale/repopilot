@@ -1,47 +1,47 @@
 from __future__ import annotations
 
-import re
 from collections import Counter
 
-from repopilot.models import Evidence, Finding, TaskState
+from repopilot.models import (
+    Evidence,
+    Finding,
+    QueryExpansionStrategy,
+    QueryExpansionTrace,
+    TaskState,
+)
+from repopilot.query_expansion import HybridQueryExpander
 from repopilot.tools.search_tools import CodeSearchTool, SearchRequest
 
 
 class InvestigatorAgent:
     """Collects evidence only; it does not decide whether a claim is true."""
 
-    STOPWORDS = {
-        "about",
-        "does",
-        "from",
-        "have",
-        "how",
-        "into",
-        "that",
-        "the",
-        "this",
-        "what",
-        "when",
-        "where",
-        "which",
-        "with",
-    }
-
     def __init__(
         self,
         search_tool: CodeSearchTool,
+        query_expander: HybridQueryExpander | None = None,
         max_results_per_keyword: int = 30,
         context_lines: int = 3,
         timeout_seconds: float = 10.0,
     ) -> None:
         self.search_tool = search_tool
+        self.query_expander = query_expander or HybridQueryExpander()
         self.max_results_per_keyword = max_results_per_keyword
         self.context_lines = context_lines
         self.timeout_seconds = timeout_seconds
 
     def run(self, state: TaskState) -> TaskState:
-        keywords = state.keywords or self._extract_keywords(state.question)
-        state.keywords = keywords
+        if state.keywords:
+            keywords = state.keywords
+            state.query_expansion = QueryExpansionTrace(
+                strategy=QueryExpansionStrategy.EXPLICIT,
+                baseline_keywords=keywords,
+            )
+        else:
+            expanded = self.query_expander.expand(state.question, use_llm=state.use_llm)
+            keywords = expanded.keywords
+            state.keywords = keywords
+            state.query_expansion = expanded.trace
 
         all_evidence: list[Evidence] = []
         seen_locations: set[tuple[str, int, str]] = set()
@@ -79,12 +79,3 @@ class InvestigatorAgent:
                 )
             ]
         return state
-
-    def _extract_keywords(self, question: str) -> list[str]:
-        tokens = re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}|[\u4e00-\u9fff]{2,8}", question)
-        unique: list[str] = []
-        for token in tokens:
-            if token.lower() in self.STOPWORDS or token in unique:
-                continue
-            unique.append(token)
-        return unique[:6]

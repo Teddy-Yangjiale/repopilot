@@ -2,11 +2,12 @@
 
 RepoPilot 是一个面向大型代码仓库的**证据驱动维护 Agent**。它接收一个仓库问题，搜索真实源码，生成带引用的调查结论和验证计划，并拒绝没有证据支持的结论。
 
-当前是 Phase 1 脚手架，目标是建立可靠的最小闭环：
+当前已完成 Phase 1 只读闭环，并在 Phase 2 加入可选的 DeepSeek + HelloAgents 查询扩展：
 
 ```text
 Question -> Investigator -> Planner -> Verifier -> Markdown Report
-                    |            |          |
+               ^    |            |          |
+  Deterministic + optional LLM    |          |
                 Evidence      Plan       Citation Gate
                     \________ SQLite Checkpoint ________/
 ```
@@ -39,6 +40,23 @@ make api
 
 如果不传 `--keyword`，系统会从问题中提取英文标识符和较长的中文词片段。为了演示稳定，面试时建议显式传入 2～5 个领域关键词。
 
+### 可选：使用 DeepSeek 扩展查询
+
+基础流程不需要任何 API Key。只有显式传入 `--use-llm` 时，RepoPilot 才会通过 HelloAgents 调用 OpenAI 兼容的 DeepSeek API：
+
+```bash
+./scripts/setup.sh --llm
+cp .env.example .env
+# 编辑 .env，只填写你自己的 LLM_API_KEY；不要提交这个文件
+
+.venv/bin/repopilot investigate \
+  --repo /home/teddy/hello-agents-lab/references/hello-agents-framework \
+  --question "How does ReActAgent execute tools and stop?" \
+  --use-llm
+```
+
+混合策略会先生成确定性关键词，再合并模型给出的符号候选。网络或模型输出异常时自动退回确定性基线，并把 `hybrid_fallback` 和错误摘要写进任务状态；缺少 API Key 或依赖则直接给出配置错误，避免用户误以为模型已生效。显式 `--keyword` 的优先级最高，不会额外产生模型费用。
+
 ## 项目结构
 
 ```text
@@ -49,6 +67,8 @@ src/repopilot/
   cli.py              命令行入口
   config.py           配置与路径校验
   models.py           Agent 间的类型化协议
+  query_expansion.py  确定性与 LLM 混合查询扩展
+  llm/                HelloAgents / DeepSeek 边界适配器
   orchestrator.py     状态机与 Checkpoint 边界
   store.py            SQLite 持久化
   report.py           可复现 Markdown 报告
@@ -64,7 +84,8 @@ curl -X POST http://127.0.0.1:8000/v1/tasks/investigate \
   -d '{
     "repo_path": "/home/teddy/hello-agents-lab/references/hello-agents-framework",
     "question": "How does the ReAct loop work?",
-    "keywords": ["ReActAgent", "invoke_with_tools", "Finish"]
+    "keywords": ["ReActAgent", "invoke_with_tools", "Finish"],
+    "use_llm": false
   }'
 ```
 
@@ -86,7 +107,7 @@ make demo
 
 ## 下一阶段
 
-1. DeepSeek + HelloAgents 负责关键词扩展、假设生成和 Function Calling。
+1. 在查询扩展基线上评测 deterministic 与 hybrid 的 Top-K 文件召回率。
 2. GitHub API/MCP 接入 Issue、PR、Review 和 CI 证据。
 3. Tree-sitter 建立 C++ 符号与调用关系。
 4. 在隔离 worktree 中增加白名单编译、测试和 Benchmark 工具。
