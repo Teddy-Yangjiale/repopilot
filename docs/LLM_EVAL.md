@@ -19,12 +19,12 @@ cp .env.example .env
 
 ```bash
 # deterministic 基线（不调模型）
-.venv/bin/repopilot eval \
+repopilot eval \
   --dataset datasets/opencv-issues.jsonl \
   --repo /home/teddy/opencv
 
 # hybrid（确定性关键词 + 模型候选合并）
-.venv/bin/repopilot eval \
+repopilot eval \
   --dataset datasets/opencv-issues.jsonl \
   --repo /home/teddy/opencv \
   --use-llm

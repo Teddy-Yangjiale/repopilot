@@ -17,7 +17,7 @@
 ## 2. 数据集构建
 
 ```bash
-.venv/bin/repopilot dataset-build \
+repopilot dataset-build \
   --clone /home/teddy/opencv \
   --out datasets/opencv-issues.jsonl \
   --limit 60
@@ -218,7 +218,7 @@
 ## 11. 复现
 
 ```bash
-.venv/bin/repopilot eval \
+repopilot eval \
   --dataset datasets/opencv-issues.jsonl \
   --repo /home/teddy/opencv
 ```

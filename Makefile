@@ -1,16 +1,16 @@
 .PHONY: setup test lint demo api
 
 setup:
-	./scripts/setup.sh
+	python3 -m pip install -e ".[dev]"
 
 test:
-	.venv/bin/pytest
+	pytest
 
 lint:
-	.venv/bin/ruff check .
+	ruff check .
 
 demo:
 	./scripts/demo.sh
 
 api:
-	.venv/bin/uvicorn repopilot.api:app --host 127.0.0.1 --port 8000 --reload
+	uvicorn repopilot.api:app --host 127.0.0.1 --port 8000 --reload

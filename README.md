@@ -54,27 +54,35 @@
 ```bash
 git clone https://github.com/Teddy-Yangjiale/repopilot.git
 cd repopilot
-./scripts/setup.sh          # 创建 venv 并安装基础依赖
-# 或 ./scripts/setup.sh --llm   # 同时启用 LLM 扩展（无需额外依赖）
+pip install .                # 装好即得 repopilot 命令（无需 venv）
+repopilot --help
+```
+
+**可选 extras**：
+
+```bash
+pip install -e ".[dev]"       # 开发：pytest + ruff
+pip install -e ".[symbols]"   # tree-sitter 定义加权（--definition-bonus）
+pip install -e ".[llm]"       # 标记 LLM 支持（零额外依赖，需在 .env 配 LLM_API_KEY）
 ```
 
 ### 30 秒跑通
 
 ```bash
 # 分析任意本地 Git 仓库（自动按判别力提取关键词）
-.venv/bin/repopilot investigate \
+repopilot investigate \
   --repo /path/to/any/git/repo \
   --question "How does the HTTP server handle request routing?"
 
 # 显式指定关键词（优先级最高，不触发 LLM）
-.venv/bin/repopilot investigate \
+repopilot investigate \
   --repo /path/to/repo \
   --question "How does X work?" \
   --keyword SymbolA --keyword symbol_b
 
 # 查看任务列表 & 从 checkpoint 恢复
-.venv/bin/repopilot tasks
-.venv/bin/repopilot resume <task-id>
+repopilot tasks
+repopilot resume <task-id>
 ```
 
 输出是一份 Markdown 报告（`.repopilot/reports/<task-id>.md`），包含：**Verified findings**（带行级引用）、**Investigation plan**（下一步只读检查）、**Evidence inventory**（完整证据表）。
@@ -159,7 +167,7 @@ Question ──▶ Investigator ──▶ Planner ──▶ Verifier ──▶ M
 ### 1. `investigate` —— 创建并运行一次调查
 
 ```bash
-.venv/bin/repopilot investigate \
+repopilot investigate \
   --repo /path/to/repo \            # 必须，已存在的 Git 仓库目录
   --question "..." \                # 必须，≥3 字符的问题
   --keyword SymbolA \               # 可选，可重复；显式指定优先级最高
@@ -174,15 +182,15 @@ Question ──▶ Investigator ──▶ Planner ──▶ Verifier ──▶ M
 ### 2. `tasks` / `resume` —— 任务管理与断点恢复
 
 ```bash
-.venv/bin/repopilot tasks                    # 列出最近 20 个任务
-.venv/bin/repopilot tasks --limit 50         # 自定义数量
-.venv/bin/repopilot resume <task-id>         # 从最后 checkpoint 恢复（幂等）
+repopilot tasks                    # 列出最近 20 个任务
+repopilot tasks --limit 50         # 自定义数量
+repopilot resume <task-id>         # 从最后 checkpoint 恢复（幂等）
 ```
 
 ### 3. `dataset-build` —— 从真实 issue 构建评测集
 
 ```bash
-.venv/bin/repopilot dataset-build \
+repopilot dataset-build \
   --clone /path/to/repo \          # 本地克隆（提供 tracked 文件列表）
   --repo opencv/opencv \           # GitHub slug
   --out datasets/opencv-issues.jsonl \
@@ -197,7 +205,7 @@ Question ──▶ Investigator ──▶ Planner ──▶ Verifier ──▶ M
 ### 4. `eval` —— 跑检索评测（全部开关）
 
 ```bash
-.venv/bin/repopilot eval \
+repopilot eval \
   --dataset datasets/opencv-issues.jsonl \
   --repo /path/to/repo \
   --limit 0                        # 0 = 全量；正数 = 只跑前 N 个 case
@@ -248,15 +256,15 @@ curl -X POST http://127.0.0.1:8000/v1/tasks/investigate \
 ./scripts/setup.sh --llm
 cp .env.example .env
 # 编辑 .env，填写 LLM_API_KEY（不要提交）
-.venv/bin/repopilot investigate --repo ... --question ... --use-llm
+repopilot investigate --repo ... --question ... --use-llm
 ```
 
 **tree-sitter 符号增强**（可选 extra）：
 
 ```bash
-.venv/bin/pip install -e ".[symbols]"      # 安装 tree-sitter + C++ grammar
+pip install -e ".[symbols]"      # 安装 tree-sitter + C++ grammar
 # 定义命中加权（命中函数签名行 > 命中函数体），提升 MRR ~0.06，代价是延迟
-.venv/bin/repopilot eval --dataset ... --repo ... --definition-bonus 1.5
+repopilot eval --dataset ... --repo ... --definition-bonus 1.5
 ```
 
 ---
