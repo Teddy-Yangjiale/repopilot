@@ -24,6 +24,7 @@ class InvestigatorAgent:
         timeout_seconds: float = 10.0,
         use_idf: bool = True,
         vendored_penalty: float = DEFAULT_VENDORED_PENALTY,
+        use_length_norm: bool = False,
         max_ranked_files: int = 50,
     ) -> None:
         self.search_tool = search_tool
@@ -34,6 +35,7 @@ class InvestigatorAgent:
         # Exposed so the evaluation harness can ablate each ranking signal independently.
         self.use_idf = use_idf
         self.vendored_penalty = vendored_penalty
+        self.use_length_norm = use_length_norm
         # Every file matching any keyword is scored, but the tail is not worth persisting to
         # SQLite or returning over HTTP on every request.
         self.max_ranked_files = max_ranked_files
@@ -70,13 +72,19 @@ class InvestigatorAgent:
         return state
 
     def _deduplicate_evidence(self, results: list[SearchResult]) -> list[Evidence]:
-        """Two keywords hitting the same line is one piece of evidence, not two."""
+        """The same keyword hitting the same line range is one piece of evidence.
+
+        The key includes the keyword: without it, two search terms hitting the same
+        region keep whichever arrived first, so the surviving evidence can claim a
+        keyword that is absent from its cited lines — exactly what the verifier's
+        re-read gate is designed to catch.
+        """
 
         evidence: list[Evidence] = []
-        seen: set[tuple[str, int, str]] = set()
+        seen: set[tuple[str, int, int, str]] = set()
         for result in results:
             for item in result.evidence:
-                location = (item.path, item.line_start, item.snippet)
+                location = (item.path, item.line_start, item.line_end, item.keyword)
                 if location not in seen:
                     seen.add(location)
                     evidence.append(item)
@@ -87,7 +95,10 @@ class InvestigatorAgent:
         verifier would reject findings for referencing evidence that is no longer present."""
 
         ranked = rank_files(
-            results, use_idf=self.use_idf, vendored_penalty=self.vendored_penalty
+            results,
+            use_idf=self.use_idf,
+            vendored_penalty=self.vendored_penalty,
+            use_length_norm=self.use_length_norm,
         )[: self.max_ranked_files]
         for file in ranked:
             file.evidence_ids = [item for item in file.evidence_ids if item in surviving_ids]

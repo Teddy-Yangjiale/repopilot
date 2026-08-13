@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,19 +28,22 @@ class SearchRequest:
 class FileMatches:
     path: str
     hit_lines: list[int]
+    total_lines: int
 
 
 @dataclass(frozen=True, slots=True)
 class SearchResult:
     """Evidence is truncated for citation; corpus statistics are not, because ranking needs them.
 
-    `matches` covers every file containing the keyword and `corpus_files` is the scan denominator,
-    which together are exactly what inverse document frequency requires. Returning only the
-    truncated evidence — as this tool used to — throws that away and makes IDF impossible.
+    `matches` covers every file containing the keyword, `corpus_files` is the scan denominator
+    and `corpus_total_lines` is the sum of scanned file lengths — together exactly what IDF and
+    BM25-style length normalisation require. Returning only the truncated evidence — as this
+    tool used to — throws all of that away.
     """
 
     keyword: str
     corpus_files: int
+    corpus_total_lines: int
     matches: list[FileMatches]
     evidence: list[Evidence]
 
@@ -74,9 +78,13 @@ class CodeSearchTool(Tool[SearchRequest, SearchResult]):
         root = resolve_repo_root(request.repo_path)
         keyword = request.keyword.strip()
         if not keyword:
-            return SearchResult(keyword=keyword, corpus_files=0, matches=[], evidence=[])
+            return SearchResult(
+                keyword=keyword, corpus_files=0, corpus_total_lines=0, matches=[], evidence=[]
+            )
 
-        matches, corpus_files = self._scan(root, keyword, request.timeout_seconds)
+        matches, corpus_files, corpus_total_lines = self._scan(
+            root, keyword, request.timeout_seconds
+        )
         # Ranking the whole repository before truncating is the point: stopping the scan early
         # would return whichever files `git ls-files` happens to list first, which is alphabetical
         # order, not relevance. Path is the tiebreaker so equal-scoring files stay reproducible.
@@ -104,30 +112,48 @@ class CodeSearchTool(Tool[SearchRequest, SearchResult]):
         return SearchResult(
             keyword=keyword,
             corpus_files=corpus_files,
+            corpus_total_lines=corpus_total_lines,
             matches=matches,
             evidence=evidence,
         )
 
     def _scan(
         self, root: Path, keyword: str, timeout_seconds: float
-    ) -> tuple[list[FileMatches], int]:
+    ) -> tuple[list[FileMatches], int, int]:
         """First pass records where the keyword occurs; snippets are built later for kept files.
 
-        Also counts how many files were actually searched. That count is the IDF denominator, and
-        it must exclude binaries and oversized files or a keyword's rarity would be overstated.
+        Also counts how many files were searched and their total line count. Both counts feed
+        the ranking: the file count is the IDF denominator and the mean length is the
+        length-normalisation baseline, and both must exclude binaries/oversized files or a
+        keyword's rarity (and a document's relative size) would be overstated.
+
+        The deadline is a safety net for the whole pass — not just the `git ls-files` call.
+        On a very large repository the Python scan itself can dominate, and without a deadline
+        one runaway search would block the entire task (or a 60-case eval run). When the budget
+        runs out we stop scanning and report the files searched so far: the scan is reproducible
+        for a fixed machine, and a truncated corpus is a better outcome than a hung process.
         """
 
         matches: list[FileMatches] = []
         corpus_files = 0
+        corpus_total_lines = 0
+        deadline = (
+            time.monotonic() + timeout_seconds if timeout_seconds and timeout_seconds > 0 else None
+        )
         for relative_path in list_tracked_files(root, timeout_seconds):
+            if deadline is not None and time.monotonic() > deadline:
+                break
             lines = self._read_text_lines(root / relative_path)
             if lines is None:
                 continue
             corpus_files += 1
+            corpus_total_lines += len(lines)
             hit_lines = [number for number, line in enumerate(lines, 1) if keyword in line]
             if hit_lines:
-                matches.append(FileMatches(path=relative_path, hit_lines=hit_lines))
-        return matches, corpus_files
+                matches.append(
+                    FileMatches(path=relative_path, hit_lines=hit_lines, total_lines=len(lines))
+                )
+        return matches, corpus_files, corpus_total_lines
 
     def _read_text_lines(self, path: Path) -> list[str] | None:
         """Returns None for anything not searchable: oversized, unreadable or binary."""

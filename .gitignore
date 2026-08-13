@@ -6,3 +6,5 @@ __pycache__/
 *.pyc
 *.egg-info/
 .repopilot/
+# Local thinking log, not part of the public repo
+docs/THINKING_LOG.md

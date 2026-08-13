@@ -103,6 +103,11 @@ def run_eval(
         float,
         typer.Option(min=0.0, max=1.0, help="Score multiplier for vendored dirs; 1.0 disables."),
     ] = DEFAULT_VENDORED_PENALTY,
+    length_norm: Annotated[
+        bool,
+        typer.Option("--length-norm/--no-length-norm",
+                     help="Dilute term frequency by doc length (experimental)."),
+    ] = False,
 ) -> None:
     """Score retrieval against a dataset and write a reproducible report."""
     from repopilot.agents import InvestigatorAgent
@@ -132,6 +137,7 @@ def run_eval(
         timeout_seconds=settings.search_timeout_seconds,
         use_idf=use_idf,
         vendored_penalty=vendored_penalty,
+        use_length_norm=length_norm,
     )
 
     results = []
@@ -140,7 +146,12 @@ def run_eval(
             results.append(run_case(case, repo, investigator, body_chars, use_llm))
 
     ranking = "+".join(
-        part for part in ("idf" if use_idf else "", "prior" if vendored_penalty < 1.0 else "")
+        part
+        for part in (
+            "idf" if use_idf else "",
+            "prior" if vendored_penalty < 1.0 else "",
+            "len" if length_norm else "",
+        )
         if part
     ) or "none"
     run = EvalRun(

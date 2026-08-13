@@ -21,6 +21,9 @@ VENDORED_DIRECTORIES = frozenset(
 
 DEFAULT_VENDORED_PENALTY = 0.1
 
+# BM25-style length-normalisation parameter: 0 disables, 0.75 is the standard BM25 value.
+LENGTH_NORM_B = 0.75
+
 
 def is_vendored(path: str) -> bool:
     return any(part.lower() in VENDORED_DIRECTORIES for part in PurePosixPath(path).parts)
@@ -38,10 +41,21 @@ def inverse_document_frequency(document_frequency: int, corpus_files: int) -> fl
     return math.log(1 + corpus_files / (1 + document_frequency))
 
 
-def term_weight(hit_count: int) -> float:
-    """Sublinear: 500 occurrences is more relevant than 1, but nowhere near 500 times more."""
+def term_weight(
+    hit_count: int, doc_lines: int = 0, avg_lines: float = 0.0,
+    b: float = LENGTH_NORM_B,
+) -> float:
+    """Sublinear term frequency with BM25-style length normalisation.
 
-    return 1.0 + math.log(hit_count) if hit_count > 0 else 0.0
+    500 occurrences is more relevant than 1, but nowhere near 500 times more; and a
+    22k-line vendored header matching a common word means less than a 700-line source
+    file matching the same word, because the big file matches almost everything.
+    """
+
+    tf = 1.0 + math.log(hit_count) if hit_count > 0 else 0.0
+    if doc_lines > 0 and avg_lines > 0:
+        tf = tf / (1.0 - b + b * (doc_lines / avg_lines))
+    return tf
 
 
 def rank_files(
@@ -49,6 +63,10 @@ def rank_files(
     *,
     use_idf: bool = True,
     vendored_penalty: float = DEFAULT_VENDORED_PENALTY,
+    # Off by default: BM25 length normalisation assumes length ~ redundancy, which is
+    # wrong for source trees where the big files ARE the implementation. Measured on the
+    # OpenCV eval set it crashed Hit@10 0.750 -> 0.283 by demoting exactly those files.
+    use_length_norm: bool = False,
 ) -> list[RankedFile]:
     """The single definition of "which files answer the question", shared by the planner and eval.
 
@@ -58,6 +76,8 @@ def rank_files(
     """
 
     corpus_files = max((result.corpus_files for result in results), default=0)
+    corpus_total_lines = max((result.corpus_total_lines for result in results), default=0)
+    avg_lines = corpus_total_lines / corpus_files if corpus_files > 0 else 0.0
 
     scores: dict[str, float] = defaultdict(float)
     keywords: dict[str, set[str]] = defaultdict(set)
@@ -67,7 +87,12 @@ def rank_files(
             inverse_document_frequency(len(result.matches), corpus_files) if use_idf else 1.0
         )
         for match in result.matches:
-            scores[match.path] += weight * term_weight(len(match.hit_lines))
+            tf = term_weight(
+                len(match.hit_lines),
+                match.total_lines if use_length_norm else 0,
+                avg_lines if use_length_norm else 0.0,
+            )
+            scores[match.path] += weight * tf
             keywords[match.path].add(result.keyword)
             hit_counts[match.path] += len(match.hit_lines)
 

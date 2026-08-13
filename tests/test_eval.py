@@ -70,12 +70,17 @@ def test_percentile_is_nearest_rank_and_stable_for_small_samples() -> None:
     assert percentile([], 0.5) == 0.0
 
 
-def search_result(keyword: str, hits: dict[str, int], corpus_files: int = 1_000) -> SearchResult:
+def search_result(
+    keyword: str, hits: dict[str, int], corpus_files: int = 1_000, lines_per_file: int = 100
+) -> SearchResult:
     return SearchResult(
         keyword=keyword,
         corpus_files=corpus_files,
+        corpus_total_lines=corpus_files * lines_per_file,
         matches=[
-            FileMatches(path=path, hit_lines=list(range(1, count + 1)))
+            FileMatches(
+                path=path, hit_lines=list(range(1, count + 1)), total_lines=lines_per_file
+            )
             for path, count in hits.items()
         ],
         evidence=[],
@@ -109,6 +114,22 @@ def test_term_weight_is_sublinear() -> None:
     """500 hits is more relevant than 1, but nowhere near 500 times more."""
     assert term_weight(1) == 1.0
     assert 1.0 < term_weight(500) < 10.0
+
+
+def test_length_normalisation_demotes_huge_files() -> None:
+    """A 22k-line vendored header must not outrank a small source file on equal hits."""
+    big = search_result(
+        "parse", {"modules/ts/ts_gtest.h": 20}, corpus_files=1_000, lines_per_file=22_000
+    )
+    small = search_result(
+        "parse", {"modules/core/parse.cpp": 10}, corpus_files=1_000, lines_per_file=700
+    )
+
+    with_len = [file.path for file in rank_files([big, small], use_length_norm=True)]
+    without = [file.path for file in rank_files([big, small])]
+
+    assert with_len[0] == "modules/core/parse.cpp"
+    assert without[0] == "modules/ts/ts_gtest.h"
 
 
 def test_ranking_covers_files_that_never_reached_the_evidence_budget() -> None:

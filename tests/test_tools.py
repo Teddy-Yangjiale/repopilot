@@ -47,6 +47,31 @@ def test_search_skips_binary_files(sample_repo: Path) -> None:
     assert CodeSearchTool().run(SearchRequest(sample_repo, "marker")).evidence == []
 
 
+def test_search_scan_stops_at_deadline(sample_repo: Path, monkeypatch) -> None:
+    """The timeout must bound the Python scan loop, not just the `git ls-files` call."""
+    import repopilot.tools.search_tools as search_tools
+
+    (sample_repo / "extra.cpp").write_text("marker\n", "utf-8")
+    _commit_all(sample_repo)
+
+    calls = {"count": 0}
+
+    def fake_monotonic() -> float:
+        calls["count"] += 1
+        # First call computes the deadline; every later call is past it.
+        return 100.0 if calls["count"] == 1 else 200.0
+
+    monkeypatch.setattr(search_tools.time, "monotonic", fake_monotonic)
+
+    result = search_tools.CodeSearchTool().run(
+        search_tools.SearchRequest(sample_repo, "marker", timeout_seconds=1.0)
+    )
+
+    assert result.corpus_files == 0
+    assert result.matches == []
+    assert result.evidence == []
+
+
 def _commit_all(repo: Path) -> None:
     import subprocess
 

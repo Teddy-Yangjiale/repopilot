@@ -11,7 +11,7 @@ from repopilot.llm import HelloAgentsKeywordGenerator
 from repopilot.orchestrator import RepoPilotOrchestrator
 from repopilot.query_expansion import HybridQueryExpander
 from repopilot.store import TaskStore
-from repopilot.tools import CodeSearchTool, GitInspector
+from repopilot.tools import CodeSearchTool, GitInspector, SafeFileReader
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -31,7 +31,7 @@ def get_orchestrator() -> RepoPilotOrchestrator:
     return RepoPilotOrchestrator(
         investigator=investigator,
         planner=PlannerAgent(),
-        verifier=VerifierAgent(),
+        verifier=VerifierAgent(reader=SafeFileReader(max_file_bytes=settings.max_file_bytes)),
         git_inspector=GitInspector(),
         store=TaskStore(state_dir / "tasks.db"),
         report_dir=state_dir / "reports",
