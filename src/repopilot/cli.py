@@ -89,10 +89,21 @@ def run_agent(
     question: Annotated[str, typer.Option(min=3)],
     max_steps: Annotated[int, typer.Option(min=1, max=30)] = 8,
     timeout_seconds: Annotated[float, typer.Option(min=1, max=1800)] = 120,
+    context_chars: Annotated[int, typer.Option(min=2_000, max=100_000)] = 7_000,
+    finalizer_context_chars: Annotated[
+        int, typer.Option(min=2_000, max=100_000)
+    ] = 9_000,
 ) -> None:
     """Run the bounded DeepSeek Plan-Act-Observe investigation loop."""
     service = _agent_service()
-    run = service.create(repo, question, max_steps=max_steps, timeout_seconds=timeout_seconds)
+    run = service.create(
+        repo,
+        question,
+        max_steps=max_steps,
+        timeout_seconds=timeout_seconds,
+        decision_context_chars=context_chars,
+        finalizer_context_chars=finalizer_context_chars,
+    )
     try:
         run, report = service.execute(run)
     except LLMConfigurationError as exc:
@@ -140,6 +151,10 @@ def run_agent_eval(
     ] = False,
     max_steps: Annotated[int, typer.Option(min=1, max=30)] = 8,
     timeout_seconds: Annotated[float, typer.Option(min=1, max=1800)] = 120,
+    context_chars: Annotated[int, typer.Option(min=2_000, max=100_000)] = 7_000,
+    finalizer_context_chars: Annotated[
+        int, typer.Option(min=2_000, max=100_000)
+    ] = 9_000,
     at_base: Annotated[
         bool,
         typer.Option(
@@ -186,6 +201,8 @@ def run_agent_eval(
                     max_steps=max_steps,
                     timeout_seconds=timeout_seconds,
                     at_base=at_base,
+                    decision_context_chars=context_chars,
+                    finalizer_context_chars=finalizer_context_chars,
                 )
             )
 
@@ -195,6 +212,8 @@ def run_agent_eval(
         body_chars,
         max_steps,
         timeout_seconds,
+        context_chars,
+        finalizer_context_chars,
         config.model,
         at_base,
         results,
@@ -209,6 +228,21 @@ def run_agent_eval(
     for key, value in run.metrics.items():
         typer.echo(f"{key}={value:.3f}")
     typer.echo(f"report={report_path}")
+
+
+@app.command("context-replay")
+def replay_agent_context(
+    database: Annotated[Path, typer.Option(exists=True, dir_okay=False, resolve_path=True)],
+    context_chars: Annotated[int, typer.Option(min=2_000, max=100_000)] = 7_000,
+    finalizer_context_chars: Annotated[
+        int, typer.Option(min=2_000, max=100_000)
+    ] = 9_000,
+) -> None:
+    """Compare v0.18 and current contexts from a saved Agent evaluation database."""
+    from repopilot.eval.context_replay import replay_contexts
+
+    metrics = replay_contexts(database, context_chars, finalizer_context_chars)
+    typer.echo(json.dumps(metrics, indent=2))
 
 
 @app.command("tasks")

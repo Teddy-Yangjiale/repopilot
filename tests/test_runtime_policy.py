@@ -47,6 +47,8 @@ def test_deepseek_policy_parses_native_tool_call(monkeypatch, sample_repo) -> No
     assert decision.reason == "locate it"
     assert decision.prompt_tokens == 100
     assert decision.completion_tokens == 20
+    assert decision.context_trace is not None
+    assert decision.context_trace.phase == "decision"
     assert captured["tool_choice"] == "required"
     assert captured["thinking"] == {"type": "disabled"}
     search_schema = next(
@@ -114,3 +116,5 @@ def test_policy_forces_finish_on_last_step_and_normalizes_missing_reason(
     assert decision.arguments["reason"] == decision.reason
     assert decision.prompt_tokens == 80
     assert decision.completion_tokens == 30
+    assert decision.context_trace is not None
+    assert decision.context_trace.phase == "finalizer"

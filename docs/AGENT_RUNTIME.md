@@ -2,7 +2,7 @@
 
 ## 1. 这次升级解决什么问题
 
-旧版 RepoPilot 的 Investigator、Planner、Verifier 是固定流水线：可靠、可评测，但模型不能根据上一轮观察动态选择下一步。v0.18 保留原有检索与引用门禁，新增一个独立的 Plan–Act–Observe 运行时，让项目同时具备“会自主调查”和“结果可验证”两种能力。
+旧版 RepoPilot 的 Investigator、Planner、Verifier 是固定流水线：可靠、可评测，但模型不能根据上一轮观察动态选择下一步。v0.19 保留原有检索与引用门禁，提供独立的 Plan–Act–Observe 运行时和分阶段 Context Builder，让项目同时具备“会自主调查”“结果可验证”和“上下文可控”三种能力。
 
 这不是把 LangChain 或 LangGraph 包一层。状态模型、工具协议、执行循环、预算控制、checkpoint 和轨迹报告都在仓库中直接实现，面试时可以沿真实调用链解释每个设计。
 
@@ -74,12 +74,25 @@ DeepSeek 的动作选择使用原生 Tool Calling；停止条件满足后不再�
 | 无限循环或成本失控 | `max_steps` 与 wall-clock timeout 双预算 | 状态明确变为 `budget_exhausted` |
 | 泄露隐藏思维链 | 只要求并存储不超过 300 字的行动理由 | 报告展示 concise reason，不展示 CoT |
 
-## 6. 当前边界与下一阶段
+## 6. 为什么单独实现 Context Builder
 
-v0.18 可以诚实宣称：它是一个只读、可恢复、经过真实 Issue 小样本评测的证据驱动仓库调查 Agent Runtime。它还不能宣称自动改代码、在容器中安全执行测试，或达到 SWE-bench 级别的修复成功率。
+旧版决策上下文固定取最近 6 步、每步最多 2500 字符，最终化再取最多 20 条证据。这个方案能运行，但总大小没有硬约束，也无法解释超预算时保留或丢弃了什么。
+
+v0.19 把上下文构建从 LLM policy 中抽成纯函数组件：
+
+- **决策阶段**需要问题、最近 observation、剩余步数和紧凑 Evidence 目录，默认预算 7000 字符。
+- **最终化阶段**不需要完整动作历史，只需要可支持结论的证据；优先实际读取证据，按文件与行范围去重，默认预算 9000 字符。
+- **ContextTrace**持久化实际大小、保留的步骤与证据 ID、丢弃和截断数量，使成本取舍进入 trajectory 和评测报告。
+- 字符预算是跨模型、零额外 tokenizer 依赖的确定性上限；真实 provider token 仍使用 API usage 单独记录，不能把字符数直接等同为 token 数。
+
+这样设计的重点不是“尽量短”，而是为不同模型调用选择足够且可解释的最小上下文。离线重放方法和边界见 `AGENT_EVALUATION.md`，简历能力矩阵见 `RESUME_PROJECT_PLAN.md`。
+
+## 7. 当前边界与下一阶段
+
+v0.19 可以诚实宣称：它是一个只读、可恢复、上下文可观测、经过真实 Issue 小样本评测的证据驱动仓库调查 Agent Runtime。它还不能宣称自动改代码、在容器中安全执行测试，或达到 SWE-bench 级别的修复成功率。
 
 当前已有 10 个无路径泄漏 OpenCV Issue 的 HEAD 小基准；下一阶段应扩展到 20–30 case，并在 PR base snapshot 上复测，同时增加 Claim 是否被证据语义充分支持的独立评测。数据稳定后，再新增隔离 worktree 中的 patch、build、test、diff 与 verifier 工具。
 
-## 7. 60 秒面试讲法
+## 8. 60 秒面试讲法
 
 > RepoPilot 最初是固定的代码检索和引用验证流水线，我把它升级成了一个可恢复的 Plan–Act–Observe Agent Runtime。模型使用 DeepSeek 原生 Tool Calling 决定搜索、读文件还是查看历史，但没有本地执行权，只能调用经过 Pydantic 校验的四个只读工具。每个 Action、Observation、行级 Evidence、延迟和 token 都会落到 SQLite，所以进程失败后可以从最后一步继续。为了控制幻觉和成本，我加入了重复动作检测、步数与时间预算，以及 finish 引用门禁；模型引用不存在的证据 ID 时，确定性运行时代码会拒绝完成。它和通用 Agent 框架相比的差异，是把真实仓库检索评测和可验证证据作为核心，而不是只展示一个能调用工具的 Demo。

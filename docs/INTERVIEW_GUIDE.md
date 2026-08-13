@@ -25,15 +25,16 @@ Phase 1 先证明工具、安全边界、状态协议和持久化正确。LLM �
 
 面试时可以把失败分为两类：缺少 Key/依赖属于配置错误，必须显式失败；提供方超时或格式异常属于运行时错误，可以降级，并把原因写入 `QueryExpansionTrace`。两者不能都静默吞掉。
 
-## 1.5 现状速览（v0.18.0，面试前必看）
+## 1.5 现状速览（v0.19.0，面试前必看）
 
 - **阶段 A/B/C**：检索定位在 60 个真实 OpenCV issue 上迭代，Hit@10 0.283 → 0.583 → 0.750，Recall@10 0.183 → 0.472 → 0.647，MRR 0.170 → 0.390 → 0.487。每步改动都在评测集上报数字。
 - **阶段 D（已回退）**：BM25 长度归一对代码仓库方向性错误（0.750 → 0.283），保留实验开关——教科书方法被真实数据证伪，这是加分叙事。
 - **阶段 E**：Verifier 回读文件确认关键词出现在引用行号，一上线就抓出两个数据流 bug（去重键缺 keyword、回读缓存键缺行范围）。
 - **仓库无关**：在 golang/go（sync.Pool→pool_test.go）、facebook/react（fiber→ReactFiberWorkLoop.js）、fastapi（OpenAPI→routing.py）上实测通过；通用 docs/changelog 降权不伤害 OpenCV 数字。
 - **Agent Runtime**：Plan–Act–Observe 循环、Tool Calling 动作选择、JSON Output finalizer、逐条 Claim→Evidence、四个只读工具、逐步 SQLite checkpoint、预算/引用门禁与 trajectory 报告。
+- **Context Engineering**：决策/最终化分阶段上下文、7000/9000 字符预算、Evidence 来源优先级与去重、ContextTrace 可观测丢弃项；10 个真实 trajectory 重放中决策上下文 p95 从 11740 降至 6950 字符。
 - **Agent 小基准**：10 个不直接出现修复路径的 OpenCV Issue，完成率 1.00，最终引用命中 merged-PR gold file 0.70；这是 HEAD 定位结果，不是修复成功率。
-- 68 个测试与 Ruff 检查全绿；版本号由包内单一来源生成。
+- 73 个测试与 Ruff 检查全绿；版本号由包内单一来源生成。
 
 ## 2. `models.py`：为什么先定义协议
 

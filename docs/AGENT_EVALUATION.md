@@ -67,3 +67,24 @@ Issue 的行号经常相对 HEAD 漂移。`read_file` 现在只允许读取本�
 2. 使用 `--at-base` 在每个 PR 的 pre-merge commit 上复测，量化 HEAD snapshot 偏差。
 3. 增加独立的 Claim–Evidence 语义支持度评测，避免把“引用存在”误写成“结论正确”。
 4. 完成只读评测后，再开放隔离 worktree 内的 patch/build/test/diff 工具。
+
+## 7. v0.19 上下文离线重放
+
+Context Builder 首先在 v0.18 保存的同一批 10 个 clean-case trajectory 上离线重放。它重建每次模型调用前的 AgentRun 前缀，对比旧版机械拼接和新版分阶段选择；不重新调用模型。
+
+| 指标 | v0.18 | v0.19 | 变化 |
+|---|---:|---:|---:|
+| 决策上下文平均字符 | 5469.3 | 4839.3 | -11.5% |
+| 决策上下文 p95 | 11740 | 6950 | -40.8% |
+| 决策上下文最大值 | 无总预算 | 6970 | ≤ 7000 |
+| 最终化上下文平均字符 | 9994.7 | 8015.1 | -19.8% |
+| 最终化上下文最大值 | 无总预算 | 8985 | ≤ 9000 |
+
+样本包含 59 次决策调用和 9 次最终化调用。离线重放证明预算、选择和可观测性实现符合预期，但不能证明 final gold-file hit 或回答质量保持不变；后者必须在提供 DeepSeek Key 后做在线 A/B。
+
+复现命令：
+
+```bash
+repopilot context-replay \
+  --database .repopilot/agent-eval-v018-clean-n10/agent_eval.db
+```

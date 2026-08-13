@@ -12,7 +12,7 @@ from repopilot.eval.runner import (
     _remove_base_worktree,
     resolve_snapshot_sha,
 )
-from repopilot.runtime.models import AgentRunStatus, AgentStepStatus
+from repopilot.runtime.models import AgentRunStatus, AgentStepStatus, ContextPhase
 from repopilot.runtime.service import AgentService
 
 
@@ -30,6 +30,10 @@ class AgentCaseResult:
     tool_calls: list[str]
     tool_errors: int
     relocated_reads: int
+    context_chars_mean: float
+    context_chars_max: int
+    context_steps_dropped: int
+    context_evidence_dropped: int
     evidence_count: int
     final_claims: int
     claim_citation_coverage: float
@@ -49,6 +53,8 @@ class AgentEvalRun:
     body_chars: int
     max_steps: int
     timeout_seconds: float
+    decision_context_chars: int
+    finalizer_context_chars: int
     model: str
     at_base: bool = False
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
@@ -84,6 +90,8 @@ def run_agent_case(
     max_steps: int,
     timeout_seconds: float,
     at_base: bool = False,
+    decision_context_chars: int = 7_000,
+    finalizer_context_chars: int = 9_000,
 ) -> AgentCaseResult:
     """Run one real issue through the dynamic Agent and retain its complete trajectory."""
 
@@ -114,6 +122,10 @@ def run_agent_case(
             tool_calls=[],
             tool_errors=0,
             relocated_reads=0,
+            context_chars_mean=0.0,
+            context_chars_max=0,
+            context_steps_dropped=0,
+            context_evidence_dropped=0,
             evidence_count=0,
             final_claims=0,
             claim_citation_coverage=0.0,
@@ -128,6 +140,8 @@ def run_agent_case(
         case.question(body_chars),
         max_steps=max_steps,
         timeout_seconds=timeout_seconds,
+        decision_context_chars=decision_context_chars,
+        finalizer_context_chars=finalizer_context_chars,
     )
     report: Path | None = None
     started = time.perf_counter()
@@ -162,6 +176,11 @@ def run_agent_case(
         bool(run.final_evidence_ids)
         and all(evidence_id in evidence_by_id for evidence_id in run.final_evidence_ids)
     )
+    context_traces = [
+        step.decision.context_trace
+        for step in run.steps
+        if step.decision.context_trace is not None
+    ]
     return AgentCaseResult(
         case_id=case.case_id,
         issue_url=case.issue_url,
@@ -179,6 +198,14 @@ def run_agent_case(
             and step.observation.metadata.get("relocated") is True
             for step in run.steps
         ),
+        context_chars_mean=mean([float(trace.chars_used) for trace in context_traces]),
+        context_chars_max=max([trace.chars_used for trace in context_traces], default=0),
+        context_steps_dropped=sum(
+            trace.steps_dropped
+            for trace in context_traces
+            if trace.phase == ContextPhase.DECISION
+        ),
+        context_evidence_dropped=sum(trace.evidence_dropped for trace in context_traces),
         evidence_count=len(run.evidence),
         final_claims=len(run.final_claims),
         claim_citation_coverage=claim_coverage,
@@ -259,6 +286,16 @@ def aggregate_agent_results(results: list[AgentCaseResult]) -> dict[str, float]:
             sum(item.tool_errors for item in results) / total_steps if total_steps else 0.0
         ),
         "relocated_reads": float(sum(item.relocated_reads for item in results)),
+        "context_chars_mean": mean([item.context_chars_mean for item in results]),
+        "context_chars_p95": percentile(
+            [float(item.context_chars_max) for item in results], 0.95
+        ),
+        "context_steps_dropped": float(
+            sum(item.context_steps_dropped for item in results)
+        ),
+        "context_evidence_dropped": float(
+            sum(item.context_evidence_dropped for item in results)
+        ),
         "steps_mean": mean([float(item.steps) for item in results]),
         "steps_p50": percentile([float(item.steps) for item in results], 0.50),
         "steps_p95": percentile([float(item.steps) for item in results], 0.95),
@@ -283,6 +320,8 @@ def build_agent_eval_run(
     body_chars: int,
     max_steps: int,
     timeout_seconds: float,
+    decision_context_chars: int,
+    finalizer_context_chars: int,
     model: str,
     at_base: bool,
     results: list[AgentCaseResult],
@@ -294,6 +333,8 @@ def build_agent_eval_run(
         body_chars=body_chars,
         max_steps=max_steps,
         timeout_seconds=timeout_seconds,
+        decision_context_chars=decision_context_chars,
+        finalizer_context_chars=finalizer_context_chars,
         model=model,
         at_base=at_base,
         metrics=aggregate_agent_results(results),
@@ -310,6 +351,10 @@ def render_agent_eval_markdown(run: AgentEvalRun) -> str:
         f"- Repository: `{run.repo_path}` @ `{run.snapshot_sha[:12]}`",
         f"- Model: `{run.model}`",
         f"- Budget: `{run.max_steps}` steps / `{run.timeout_seconds:.0f}` seconds per case",
+        (
+            f"- Context budget: `{run.decision_context_chars}` decision chars / "
+            f"`{run.finalizer_context_chars}` finalizer chars"
+        ),
         f"- Evaluated at: `{'PR base commit' if run.at_base else 'repository HEAD'}`",
         f"- Run at: {run.created_at}",
         "",
@@ -327,6 +372,15 @@ def render_agent_eval_markdown(run: AgentEvalRun) -> str:
         f"| Citation integrity | {metrics.get('citation_integrity_rate', 0):.3f} |",
         f"| Tool-error step rate | {metrics.get('tool_error_step_rate', 0):.3f} |",
         f"| Stale read ranges relocated | {int(metrics.get('relocated_reads', 0))} |",
+        (
+            f"| Dynamic context chars mean / p95 | "
+            f"{metrics.get('context_chars_mean', 0):.0f} / "
+            f"{metrics.get('context_chars_p95', 0):.0f} |"
+        ),
+        (
+            "| Historical steps dropped from decision context | "
+            f"{int(metrics.get('context_steps_dropped', 0))} |"
+        ),
         (
             f"| Mean steps / tokens | {metrics.get('steps_mean', 0):.2f} / "
             f"{metrics.get('tokens_mean', 0):.0f} |"

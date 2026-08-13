@@ -137,6 +137,8 @@ def test_agent_eval_markdown_exposes_outcomes_and_failures(
         body_chars=600,
         max_steps=2,
         timeout_seconds=30,
+        decision_context_chars=7_000,
+        finalizer_context_chars=9_000,
         model="fake",
         metrics=aggregate_agent_results([result]),
         results=[result],

@@ -27,6 +27,26 @@ class AgentStepStatus(StrEnum):
     TOOL_ERROR = "tool_error"
 
 
+class ContextPhase(StrEnum):
+    DECISION = "decision"
+    FINALIZER = "finalizer"
+
+
+class ContextTrace(BaseModel):
+    """Observable record of what dynamic context was kept or dropped for one model call."""
+
+    phase: ContextPhase
+    char_budget: int = Field(ge=1)
+    chars_used: int = Field(ge=0)
+    steps_available: int = Field(default=0, ge=0)
+    step_indexes_included: list[int] = Field(default_factory=list)
+    steps_dropped: int = Field(default=0, ge=0)
+    evidence_available: int = Field(default=0, ge=0)
+    evidence_ids_included: list[str] = Field(default_factory=list)
+    evidence_dropped: int = Field(default=0, ge=0)
+    truncated_items: int = Field(default=0, ge=0)
+
+
 class AgentDecision(BaseModel):
     """One bounded action selected by a policy.
 
@@ -39,6 +59,7 @@ class AgentDecision(BaseModel):
     model: str | None = None
     prompt_tokens: int = Field(default=0, ge=0)
     completion_tokens: int = Field(default=0, ge=0)
+    context_trace: ContextTrace | None = None
 
 
 class ToolObservation(BaseModel):
@@ -70,6 +91,8 @@ class AgentRun(BaseModel):
     status: AgentRunStatus = AgentRunStatus.CREATED
     max_steps: int = Field(default=8, ge=1, le=30)
     timeout_seconds: float = Field(default=120.0, gt=0, le=1800)
+    decision_context_chars: int = Field(default=7_000, ge=2_000, le=100_000)
+    finalizer_context_chars: int = Field(default=9_000, ge=2_000, le=100_000)
     steps: list[AgentStep] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
     final_answer: str | None = None

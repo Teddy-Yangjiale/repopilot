@@ -32,6 +32,16 @@ def render_agent_report(run: AgentRun) -> str:
                 f"- Why: {step.decision.reason or '(not provided)'}",
                 f"- Arguments: `{json.dumps(arguments, ensure_ascii=False)}`",
                 f"- Latency: `{step.latency_ms} ms`",
+                *(
+                    [
+                        f"- Context: `{step.decision.context_trace.chars_used}/"
+                        f"{step.decision.context_trace.char_budget} chars`; "
+                        f"dropped steps=`{step.decision.context_trace.steps_dropped}`, "
+                        f"evidence=`{step.decision.context_trace.evidence_dropped}`"
+                    ]
+                    if step.decision.context_trace
+                    else []
+                ),
                 f"- Observation: {step.observation.content[:3000]}",
                 "",
             ]

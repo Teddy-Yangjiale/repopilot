@@ -1,9 +1,9 @@
 # 🔍 RepoPilot
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.18.0-blue" alt="version">
+  <img src="https://img.shields.io/badge/version-0.19.0-blue" alt="version">
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="python">
-  <img src="https://img.shields.io/badge/tests-68%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-73%20passing-brightgreen" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
   <img src="https://img.shields.io/badge/eval-362%20real%20cases-orange" alt="eval">
 </p>
@@ -23,7 +23,7 @@
 - 🚀 **快**：`git grep` 后端，OpenCV 全库单关键词 0.66s（纯 Python 扫描的 1/3）
 - 🧩 **零重依赖**：运行时核心仅 5 个库，LLM 客户端用标准库手写
 - 🔁 **断点续跑**：SQLite checkpoint，进程中断后从阶段边界恢复
-- 🛡️ **只读安全**：无 shell 执行/文件写入/网络访问，路径严格限制在仓库内
+- 🛡️ **只读安全**：工具侧无 shell 执行、文件写入或任意网络访问，路径严格限制在仓库内
 
 ---
 
@@ -113,14 +113,16 @@ Question ──▶ Investigator ──▶ Planner ──▶ Verifier ──▶ M
 
 ## 🤖 Agent Runtime
 
-v0.18 在原有确定性调查流水线之外，加入了可恢复的 **Plan → Act → Observe** 运行时。DeepSeek 通过原生 Tool Calling 选择调查动作，最终化阶段使用 JSON Output 生成逐条 Claim→Evidence 绑定；执行权和引用校验始终留在本地确定性代码中。每一步的动作、观察、引用、延迟和 token 用量都会写入 SQLite trajectory。
+v0.19 在原有确定性调查流水线之外，提供可恢复的 **Plan → Act → Observe** 运行时。DeepSeek 通过原生 Tool Calling 选择调查动作，最终化阶段使用 JSON Output 生成逐条 Claim→Evidence 绑定；执行权和引用校验始终留在本地确定性代码中。决策与最终化分别使用 7000/9000 字符的 Context Builder，每一步的动作、观察、引用、上下文取舍、延迟和 token 用量都会写入 SQLite trajectory。
 
 ```bash
 # .env 中配置 DeepSeek 兼容接口后运行
 .venv/bin/repopilot agent \
   --repo /path/to/repo \
   --question "How is checkpoint recovery implemented?" \
-  --max-steps 8
+  --max-steps 8 \
+  --context-chars 7000 \
+  --finalizer-context-chars 9000
 
 # 中断或失败后从最后一个已持久化步骤继续
 .venv/bin/repopilot agent-resume <run-id>
@@ -314,7 +316,7 @@ src/repopilot/
   store.py            SQLite 持久化（WAL）
   report.py           可复现 Markdown 报告
   eval/               评测：数据集挖掘/指标/runner
-tests/                68 个测试（单元/集成/API/Agent Runtime/Evaluation）
+tests/                73 个测试（单元/集成/API/Agent Runtime/Evaluation）
 docs/                 评测方法与面试讲解
 ```
 
@@ -334,7 +336,7 @@ docs/                 评测方法与面试讲解
 
 ```bash
 make lint     # ruff
-make test     # pytest（68 个用例，全绿）
+make test     # pytest（73 个用例，全绿）
 make demo     # 端到端演示
 ```
 

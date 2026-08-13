@@ -4,6 +4,7 @@ import json
 from typing import Protocol
 
 from repopilot.llm.deepseek import DeepSeekConfig, post_chat_completion
+from repopilot.runtime.context import ContextBuilder
 from repopilot.runtime.models import AgentDecision, AgentRun, AgentStepStatus
 from repopilot.runtime.tooling import FinishArguments
 
@@ -39,8 +40,13 @@ Put unsupported possibilities and uncertainty in limitations. Never invent evide
 class DeepSeekToolPolicy:
     """Native DeepSeek tool-calling policy; execution authority stays in ToolRegistry."""
 
-    def __init__(self, config: DeepSeekConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: DeepSeekConfig | None = None,
+        context_builder: ContextBuilder | None = None,
+    ) -> None:
         self._config = config
+        self._context_builder = context_builder or ContextBuilder()
 
     def decide(
         self, run: AgentRun, tool_schemas: list[dict[str, object]]
@@ -61,36 +67,14 @@ class DeepSeekToolPolicy:
         )
         if should_finish:
             return self._finalize(config, run)
-        history = [
-            {
-                "step": step.index,
-                "tool": step.decision.tool_name,
-                "arguments": {
-                    key: value
-                    for key, value in step.decision.arguments.items()
-                    if key != "reason"
-                },
-                "status": step.status.value,
-                "observation": step.observation.content[:2500],
-                "evidence_ids": [item.id for item in step.observation.evidence],
-            }
-            for step in run.steps[-6:]
-        ]
+        context, context_trace = self._context_builder.build_decision(run)
         payload = {
             "model": config.model,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {
                     "role": "user",
-                    "content": json.dumps(
-                        {
-                            "question": run.question,
-                            "step_budget_remaining": steps_remaining,
-                            "collected_evidence_ids": [item.id for item in run.evidence],
-                            "recent_history": history,
-                        },
-                        ensure_ascii=False,
-                    ),
+                    "content": json.dumps(context, ensure_ascii=False),
                 },
             ],
             "tools": available_tools,
@@ -129,34 +113,18 @@ class DeepSeekToolPolicy:
             model=data.get("model") or config.model,
             prompt_tokens=int(usage.get("prompt_tokens") or 0),
             completion_tokens=int(usage.get("completion_tokens") or 0),
+            context_trace=context_trace,
         )
 
     def _finalize(self, config: DeepSeekConfig, run: AgentRun) -> AgentDecision:
-        read_evidence = [item for item in run.evidence if item.source == "agent_read_file"]
-        other_evidence = [item for item in run.evidence if item.source != "agent_read_file"]
-        selected = (read_evidence[-10:] + other_evidence[:10])[:20]
+        context, context_trace = self._context_builder.build_finalizer(run)
         payload = {
             "model": config.model,
             "messages": [
                 {"role": "system", "content": FINALIZER_PROMPT},
                 {
                     "role": "user",
-                    "content": json.dumps(
-                        {
-                            "instruction": "Finalize the answer as JSON now.",
-                            "question": run.question,
-                            "evidence": [
-                                {
-                                    "id": item.id,
-                                    "citation": item.citation,
-                                    "keyword": item.keyword,
-                                    "snippet": item.snippet[:1_200],
-                                }
-                                for item in selected
-                            ],
-                        },
-                        ensure_ascii=False,
-                    ),
+                    "content": json.dumps(context, ensure_ascii=False),
                 },
             ],
             "response_format": {"type": "json_object"},
@@ -188,4 +156,5 @@ class DeepSeekToolPolicy:
             model=data.get("model") or config.model,
             prompt_tokens=int(usage.get("prompt_tokens") or 0),
             completion_tokens=int(usage.get("completion_tokens") or 0),
+            context_trace=context_trace,
         )

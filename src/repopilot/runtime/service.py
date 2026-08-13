@@ -35,12 +35,16 @@ class AgentService:
         question: str,
         max_steps: int = 8,
         timeout_seconds: float = 120,
+        decision_context_chars: int = 7_000,
+        finalizer_context_chars: int = 9_000,
     ) -> AgentRun:
         run = AgentRun(
             repo_path=resolve_repo_root(repo_path),
             question=question,
             max_steps=max_steps,
             timeout_seconds=timeout_seconds,
+            decision_context_chars=decision_context_chars,
+            finalizer_context_chars=finalizer_context_chars,
         )
         self.store.save(run)
         return run
