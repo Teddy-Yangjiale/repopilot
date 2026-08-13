@@ -160,6 +160,18 @@ def run_eval(
     if limit:
         cases = cases[:limit]
 
+    if use_llm:
+        # Fail fast on configuration before running a single case: otherwise every case
+        # would report the same LLMConfigurationError and waste a full eval run.
+        from repopilot.llm.deepseek import DeepSeekConfig
+        from repopilot.query_expansion import LLMConfigurationError
+
+        try:
+            DeepSeekConfig.from_env()
+        except LLMConfigurationError as exc:
+            typer.echo(f"Configuration error: {exc}", err=True)
+            raise typer.Exit(code=2) from exc
+
     investigator = InvestigatorAgent(
         search_tool=CodeSearchTool(),
         query_expander=HybridQueryExpander(generator=DeepSeekKeywordGenerator()),

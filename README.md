@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="python">
   <img src="https://img.shields.io/badge/tests-52%20passing-brightgreen" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
-  <img src="https://img.shields.io/badge/eval-337%20real%20cases-orange" alt="eval">
+  <img src="https://img.shields.io/badge/eval-362%20real%20cases-orange" alt="eval">
 </p>
 
 **RepoPilot 是一个证据驱动的代码仓库维护 Agent**：给定一个仓库问题，它搜索真实源码，产出**带行级引用的调查结论与验证计划**，并**拒绝没有证据支持的结论**。
@@ -18,7 +18,7 @@
 
 - 🎯 **证据驱动**：结论必须锚定 `Evidence.id`（行级引用），无引用即拒绝
 - 🔗 **引用真实性回读**：Verifier 回读文件，确认关键词确实出现在引用行号处
-- ⚖️ **评测驱动迭代**：每次检索改动都在 337 个真实 GitHub issue（11 仓库、6 生态）上报告增量（Hit@10 0.283 → 0.767）
+- ⚖️ **评测驱动迭代**：每次检索改动都在 362 个真实 GitHub issue（12 仓库、7 生态）上报告增量（Hit@10 0.283 → 0.767）
 - 🌐 **仓库无关**：在 OpenCV（C++）、FastAPI（Python）、Go 标准库三个生态实测
 - 🚀 **快**：`git grep` 后端，OpenCV 全库单关键词 0.66s（纯 Python 扫描的 1/3）
 - 🧩 **零重依赖**：运行时核心仅 5 个库，LLM 客户端用标准库手写
@@ -106,11 +106,12 @@ Question ──▶ Investigator ──▶ Planner ──▶ Verifier ──▶ M
 
 每一次检索改动都必须在一把**公开的尺子**上报告数字。任务定义：**给定一个真实 GitHub issue，能否指出这次修复实际改动的文件？** 标准答案来自关闭该 issue 的已合并 PR——**维护者用一次真实代码评审背书**，不是人工标注。
 
-### 主结果（337 个真实 case，11 个仓库，deterministic 策略，不调任何模型）
+### 主结果（362 个真实 case，12 个仓库，deterministic 策略，不调任何模型）
 
 | 数据集 | 语言 | case 数 | Recall@10 | Hit@10 | MRR | 无泄漏 Hit@10 |
 |---|---|---:|---:|---:|---:|---:|
 | Redis | C | 30 | 0.808 | **0.900** | 0.674 | 0.800 |
+| Guava | Java | 25 | 0.787 | 0.840 | 0.669 | 0.765 |
 | Tokio | Rust | 25 | 0.648 | 0.800 | 0.538 | 0.875 |
 | Vue | JS | 30 | 0.595 | 0.800 | 0.533 | 0.826 |
 | OpenCV | C++ | 60 | 0.664 | 0.767 | 0.487 | 0.654 |
@@ -153,7 +154,7 @@ Question ──▶ Investigator ──▶ Planner ──▶ Verifier ──▶ M
 ```
 
 - **关键词提取**：不传 `--keyword` 时自动按判别力提取（堆栈符号、CamelCase/snake_case 标识符优先，样板词降权）。
-- **`--use-llm`**：先生成确定性关键词，再合并模型候选；模型异常自动降级为 `hybrid_fallback`（写进报告），缺 Key 显式报配置错误。
+- **`--use-llm`**：先生成确定性关键词，再合并模型候选；模型异常自动降级为 `hybrid_fallback`（写进报告），缺 Key 显式报配置错误。评测方法见 [docs/LLM_EVAL.md](docs/LLM_EVAL.md)。
 - **输出**：终端打印 `task_id / stage / evidence 数 / 查询策略 / 报告路径`，报告写在 `.repopilot/reports/`。
 
 ### 2. `tasks` / `resume` —— 任务管理与断点恢复
@@ -301,7 +302,7 @@ make demo     # 端到端演示
 - [x] 去 SDK 依赖（手写 OpenAI 兼容客户端）
 - [x] react 数据集（REST 挖掘：GraphQL search 对该仓库返回 0，改用 merged PR 的 closes 引用）
 - [ ] 定义加权性能优化（当前 ~7x 延迟）
-- [ ] LLM 查询扩展的增量评测
+- [ ] LLM 查询扩展的增量评测（框架已备 `--use-llm` + 快速失败 + docs/LLM_EVAL.md，待真实 Key 跑数据）
 - [ ] GitHub Issue/PR/Review 作为新证据源
 
 ---
