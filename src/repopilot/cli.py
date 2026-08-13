@@ -7,6 +7,7 @@ from typing import Annotated
 import typer
 from dotenv import load_dotenv
 
+from repopilot import __version__
 from repopilot.container import get_orchestrator
 from repopilot.query_expansion import LLMConfigurationError
 from repopilot.ranking import DEFAULT_VENDORED_PENALTY
@@ -16,6 +17,22 @@ app = typer.Typer(help="Evidence-driven repository maintenance agent.")
 # Load .env at the CLI level so every command (not just the orchestrator-built ones)
 # can read LLM_* settings; load_dotenv is idempotent and override=False.
 load_dotenv(Path.cwd() / ".env", override=False)
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(__version__)
+        raise typer.Exit
+
+
+@app.callback()
+def main(
+    version: Annotated[
+        bool | None,
+        typer.Option("--version", callback=_version_callback, is_eager=True),
+    ] = None,
+) -> None:
+    """RepoPilot command line interface."""
 
 
 @app.command()
@@ -49,6 +66,58 @@ def resume(task_id: str) -> None:
     state, report = get_orchestrator().resume(task_id)
     typer.echo(f"task_id={state.task_id}")
     typer.echo(f"stage={state.stage.value}")
+    typer.echo(f"report={report}")
+
+
+def _agent_service():
+    from repopilot.config import Settings
+    from repopilot.runtime.policy import DeepSeekToolPolicy
+    from repopilot.runtime.service import AgentService
+    from repopilot.runtime.store import AgentRunStore
+
+    state_dir = Settings().resolve_state_dir()
+    return AgentService(
+        policy=DeepSeekToolPolicy(),
+        store=AgentRunStore(state_dir / "agent_runs.db"),
+        report_dir=state_dir / "agent_reports",
+    )
+
+
+@app.command("agent")
+def run_agent(
+    repo: Annotated[Path, typer.Option(exists=True, file_okay=False, resolve_path=True)],
+    question: Annotated[str, typer.Option(min=3)],
+    max_steps: Annotated[int, typer.Option(min=1, max=30)] = 8,
+    timeout_seconds: Annotated[float, typer.Option(min=1, max=1800)] = 120,
+) -> None:
+    """Run the bounded DeepSeek Plan-Act-Observe investigation loop."""
+    service = _agent_service()
+    run = service.create(repo, question, max_steps=max_steps, timeout_seconds=timeout_seconds)
+    try:
+        run, report = service.execute(run)
+    except LLMConfigurationError as exc:
+        typer.echo(f"run_id={run.run_id}")
+        typer.echo(f"Configuration error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"run_id={run.run_id}")
+    typer.echo(f"status={run.status.value}")
+    typer.echo(f"steps={len(run.steps)}")
+    typer.echo(f"evidence={len(run.evidence)}")
+    typer.echo(f"tokens={run.total_tokens}")
+    typer.echo(f"report={report}")
+
+
+@app.command("agent-resume")
+def resume_agent(run_id: str) -> None:
+    """Resume an Agent run from its persisted Action/Observation trajectory."""
+    try:
+        run, report = _agent_service().resume(run_id)
+    except KeyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"run_id={run.run_id}")
+    typer.echo(f"status={run.status.value}")
+    typer.echo(f"steps={len(run.steps)}")
     typer.echo(f"report={report}")
 
 

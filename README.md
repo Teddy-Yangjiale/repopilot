@@ -1,9 +1,9 @@
 # 🔍 RepoPilot
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.10.0-blue" alt="version">
+  <img src="https://img.shields.io/badge/version-0.17.0-blue" alt="version">
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="python">
-  <img src="https://img.shields.io/badge/tests-52%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-61%20passing-brightgreen" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
   <img src="https://img.shields.io/badge/eval-362%20real%20cases-orange" alt="eval">
 </p>
@@ -31,6 +31,7 @@
 
 - [快速开始](#-快速开始)
 - [工作原理](#-工作原理)
+- [Agent Runtime](#-agent-runtime)
 - [评测结果](#-评测结果)
 - [详细使用教程](#-详细使用教程)
 - [项目结构](#-项目结构)
@@ -54,8 +55,8 @@
 ```bash
 git clone https://github.com/Teddy-Yangjiale/repopilot.git
 cd repopilot
-pip install .                # 装好即得 repopilot 命令（无需 venv）
-repopilot --help
+./scripts/setup.sh           # 创建隔离的 .venv 并安装开发依赖
+.venv/bin/repopilot --help
 ```
 
 **可选 extras**：
@@ -107,6 +108,25 @@ Question ──▶ Investigator ──▶ Planner ──▶ Verifier ──▶ M
 3. **Verifier（验证者）**——确定性引用门禁：结论引用的 `Evidence.id` 必须真实存在，**且回读文件确认关键词出现在引用行号处**（防伪造行号/过时 snippet）。
 
 **防幻觉四层**：检索层只收集不做因果推断 → 结论必须锚定引用 → Verifier 回读验证真实性 → 置信度封顶 0.95 + 报告声明"只证明文本命中"。
+
+---
+
+## 🤖 Agent Runtime
+
+v0.17 在原有确定性调查流水线之外，加入了可恢复的 **Plan → Act → Observe** 运行时。DeepSeek 通过原生 Tool Calling 选择下一步，但执行权始终留在本地白名单工具中；每一步的动作、观察、引用、延迟和 token 用量都会写入 SQLite trajectory。
+
+```bash
+# .env 中配置 DeepSeek 兼容接口后运行
+.venv/bin/repopilot agent \
+  --repo /path/to/repo \
+  --question "How is checkpoint recovery implemented?" \
+  --max-steps 8
+
+# 中断或失败后从最后一个已持久化步骤继续
+.venv/bin/repopilot agent-resume <run-id>
+```
+
+运行时只开放四个能力明确的工具：`search_code`、`read_file`、`git_history`、`finish`。它不提供任意 shell、代码执行或文件写入；同时设置步数/时间预算、拒绝重复动作，并在 `finish` 时校验所有引用 ID 确实来自本次 trajectory。架构对比和面试讲法见 [`docs/AGENT_RUNTIME.md`](docs/AGENT_RUNTIME.md)。
 
 ---
 
@@ -274,6 +294,7 @@ repopilot eval --dataset ... --repo ... --definition-bonus 1.5
 ```text
 src/repopilot/
   agents/             Investigator / Planner / Verifier 三阶段
+  runtime/            Plan-Act-Observe 循环、工具注册、trajectory 与恢复
   tools/              受控只读工具（搜索/读取/Git/路径安全）
   symbols.py          tree-sitter 符号定位（函数/定义 vs 使用）
   api.py              FastAPI 接口
@@ -287,7 +308,7 @@ src/repopilot/
   store.py            SQLite 持久化（WAL）
   report.py           可复现 Markdown 报告
   eval/               评测：数据集挖掘/指标/runner
-tests/                52 个测试（单元/集成/API）
+tests/                61 个测试（单元/集成/API/Agent Runtime）
 docs/                 评测方法与面试讲解
 ```
 
@@ -296,7 +317,7 @@ docs/                 评测方法与面试讲解
 ## 🔒 安全边界
 
 - 仓库路径必须存在且是 Git 仓库
-- **只读**：不提供 shell 执行、文件写入、网络访问或 Git 修改工具
+- **只读工具环境**：模型客户端需要访问 DeepSeek API，但模型不能发起任意网络访问；工具不提供 shell、文件写入或 Git 修改能力
 - 文件读取限制在仓库根目录内，限制最大字节数（默认 200KB）
 - 搜索用 `git grep`（参数数组启动，不经 shell），不可用自动降级纯 Python 扫描
 - 报告明确区分 `verified` / `partial` / `rejected`
@@ -307,7 +328,7 @@ docs/                 评测方法与面试讲解
 
 ```bash
 make lint     # ruff
-make test     # pytest（52 个用例，全绿）
+make test     # pytest（61 个用例，全绿）
 make demo     # 端到端演示
 ```
 
@@ -325,6 +346,8 @@ make demo     # 端到端演示
 - [x] react 数据集（REST 挖掘：GraphQL search 对该仓库返回 0，改用 merged PR 的 closes 引用）
 - [ ] 定义加权性能优化（当前 ~7x 延迟）
 - [x] LLM 查询扩展的增量评测（hybrid Hit@10 0.767→0.817、MRR 0.487→0.569，延迟 5x）
+- [x] 原生 Tool Calling Agent Runtime（逐步 checkpoint、预算、重复动作与引用门禁）
+- [ ] 20–30 个真实仓库问题的 Agent trajectory/cost/success 评测
 - [ ] GitHub Issue/PR/Review 作为新证据源
 
 ---

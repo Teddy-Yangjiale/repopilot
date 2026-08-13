@@ -5,10 +5,11 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from repopilot import __version__
 from repopilot.container import get_orchestrator
 from repopilot.models import TaskState
 
-app = FastAPI(title="RepoPilot", version="0.15.0")
+app = FastAPI(title="RepoPilot", version=__version__)
 
 
 class InvestigateRequest(BaseModel):

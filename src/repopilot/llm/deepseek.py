@@ -83,7 +83,7 @@ class DeepSeekKeywordGenerator:
             "max_tokens": 300,
         }
         started = time.monotonic()
-        data = self._post(config, payload)
+        data = post_chat_completion(config, payload)
         latency_ms = max(0, int((time.monotonic() - started) * 1000))
 
         choices = data.get("choices") or []
@@ -95,28 +95,32 @@ class DeepSeekKeywordGenerator:
             latency_ms=latency_ms,
         )
 
-    def _post(self, config: DeepSeekConfig, payload: dict) -> dict:
-        url = config.base_url.rstrip("/") + "/chat/completions"
-        request = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {config.api_key}",
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=config.timeout) as response:
-                raw = response.read()
-        except urllib.error.HTTPError as exc:
-            if exc.code == 401:
-                raise LLMConfigurationError(
-                    "DeepSeek rejected the API key (HTTP 401). Check LLM_API_KEY."
-                ) from exc
-            raise RuntimeError(f"DeepSeek HTTP {exc.code}: {exc.reason}") from exc
 
-        try:
-            return json.loads(raw.decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise ValueError(f"DeepSeek returned non-JSON: {raw[:200]!r}") from exc
+
+def post_chat_completion(config: DeepSeekConfig, payload: dict) -> dict:
+    """Shared, inspectable transport for keyword expansion and agent decisions."""
+
+    url = config.base_url.rstrip("/") + "/chat/completions"
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {config.api_key}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=config.timeout) as response:
+            raw = response.read()
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            raise LLMConfigurationError(
+                "DeepSeek rejected the API key (HTTP 401). Check LLM_API_KEY."
+            ) from exc
+        raise RuntimeError(f"DeepSeek HTTP {exc.code}: {exc.reason}") from exc
+
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError(f"DeepSeek returned non-JSON: {raw[:200]!r}") from exc

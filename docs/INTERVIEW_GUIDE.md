@@ -17,7 +17,7 @@
 
 ### 为什么第一版不调用 LLM
 
-Phase 1 先证明工具、安全边界、状态协议和持久化正确。LLM 是概率组件，如果基础层还不可验证，引入模型会让问题难以归因。Phase 2 已让 DeepSeek 负责查询扩展，同时保留确定性的证据门禁；工具选择仍留在后续评测通过以后。
+Phase 1 先证明工具、安全边界、状态协议和持久化正确。LLM 是概率组件，如果基础层还不可验证，引入模型会让问题难以归因。Phase 2 让 DeepSeek 负责查询扩展；v0.17 再加入原生 Tool Calling，但执行权、预算、checkpoint 和引用门禁仍由确定性运行时控制。多步 Agent 效果尚未系统评测，不能把“能调用工具”直接说成“自动修复成功”。
 
 ### 为什么采用 Hybrid，而不是完全替换规则
 
@@ -25,13 +25,14 @@ Phase 1 先证明工具、安全边界、状态协议和持久化正确。LLM �
 
 面试时可以把失败分为两类：缺少 Key/依赖属于配置错误，必须显式失败；提供方超时或格式异常属于运行时错误，可以降级，并把原因写入 `QueryExpansionTrace`。两者不能都静默吞掉。
 
-## 1.5 现状速览（v0.4.0，面试前必看）
+## 1.5 现状速览（v0.17.0，面试前必看）
 
 - **阶段 A/B/C**：检索定位在 60 个真实 OpenCV issue 上迭代，Hit@10 0.283 → 0.583 → 0.750，Recall@10 0.183 → 0.472 → 0.647，MRR 0.170 → 0.390 → 0.487。每步改动都在评测集上报数字。
 - **阶段 D（已回退）**：BM25 长度归一对代码仓库方向性错误（0.750 → 0.283），保留实验开关——教科书方法被真实数据证伪，这是加分叙事。
 - **阶段 E**：Verifier 回读文件确认关键词出现在引用行号，一上线就抓出两个数据流 bug（去重键缺 keyword、回读缓存键缺行范围）。
 - **仓库无关**：在 golang/go（sync.Pool→pool_test.go）、facebook/react（fiber→ReactFiberWorkLoop.js）、fastapi（OpenAPI→routing.py）上实测通过；通用 docs/changelog 降权不伤害 OpenCV 数字。
-- 37+ 测试全绿、ruff 全绿；版本 0.4.0 已推 GitHub。
+- **Agent Runtime**：Plan–Act–Observe 循环、DeepSeek 原生 Tool Calling、四个只读工具、逐步 SQLite checkpoint、重复动作/预算/引用门禁与 trajectory 报告。
+- 61 个测试与 Ruff 检查全绿；版本号由包内单一来源生成。
 
 ## 2. `models.py`：为什么先定义协议
 
