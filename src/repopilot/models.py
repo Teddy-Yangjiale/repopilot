@@ -65,6 +65,16 @@ class Evidence(BaseModel):
         return f"{self.path}:{self.line_start}-{self.line_end}"
 
 
+class RankedFile(BaseModel):
+    """A scored candidate location. Persisted because the ranking *is* the retrieval answer."""
+
+    path: str
+    score: float
+    keyword_count: int
+    evidence_count: int
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
 class Finding(BaseModel):
     statement: str
     evidence_ids: list[str] = Field(default_factory=list)
@@ -94,6 +104,7 @@ class TaskState(BaseModel):
     query_expansion: QueryExpansionTrace = Field(default_factory=QueryExpansionTrace)
     stage: TaskStage = TaskStage.CREATED
     evidence: list[Evidence] = Field(default_factory=list)
+    ranked_files: list[RankedFile] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
     plan: list[PlanStep] = Field(default_factory=list)
     verification: list[VerificationItem] = Field(default_factory=list)

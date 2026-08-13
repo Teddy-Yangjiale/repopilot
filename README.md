@@ -89,6 +89,34 @@ curl -X POST http://127.0.0.1:8000/v1/tasks/investigate \
   }'
 ```
 
+## 检索评测（阶段 A）
+
+RepoPilot 的每一次检索改动都必须先在一把公开的尺子上报数字。任务定义是：**给定一个真实 GitHub issue，能否指出这次修复实际改动的文件？** 标准答案来自关闭该 issue 的已合并 PR —— 不是人工标注，而是维护者用一次真实代码评审背书过的。
+
+```bash
+# 构建数据集（走你已有的 gh auth 会话，Token 不进代码）
+.venv/bin/repopilot dataset-build --clone /home/teddy/opencv \
+  --out datasets/opencv-issues.jsonl --limit 60
+
+# 跑评测
+.venv/bin/repopilot eval --dataset datasets/opencv-issues.jsonl --repo /home/teddy/opencv
+```
+
+**当前结果**（60 个 OpenCV case，`deterministic` 策略，不调用任何模型）：
+
+| 排序配置 | Recall@10 | Hit@10 | MRR | 延迟 p50 |
+|---|---:|---:|---:|---:|
+| 阶段 A 字面匹配基线 | 0.183 | 0.283 | 0.170 | 3.4 s |
+| **阶段 B（IDF + 路径先验）** | **0.472** | **0.583** | **0.390** | **2.8 s** |
+
+阶段 A 的基线低得很有规律：top-3 预测有 61% 落在 `3rdparty/` 下，而标准答案里占比是 0%。根因是字面匹配没有 IDF、没有路径先验。诊断把失败劈成两半：21/60 是排序问题（正确文件已在候选集，只是排名 > 10），22/60 是召回问题（从未被检索到）。
+
+阶段 B 只改排序，**排序问题从 21 个降到 5 个，召回问题几乎没动（22 → 20）—— 与诊断预测一致**，`3rdparty/` 在 top-3 的占比降到 0.0%。四臂消融显示 IDF 是最大单项贡献，路径先验主要改善 top-1（Hit@1 0.150 → 0.300）。
+
+诚实的下界：在「正文未提及答案文件」的最严格子集上，Hit@10 是 0.231 → 0.423。完整消融表、归因和两条局限见 [docs/EVALUATION.md](docs/EVALUATION.md)。
+
+方法、过滤规则、三条已知偏差和完整失败模式分析见 [docs/EVALUATION.md](docs/EVALUATION.md)。
+
 ## 安全边界
 
 - 仓库路径必须存在且是 Git 仓库。
@@ -107,8 +135,11 @@ make demo
 
 ## 下一阶段
 
-1. 在查询扩展基线上评测 deterministic 与 hybrid 的 Top-K 文件召回率。
-2. GitHub API/MCP 接入 Issue、PR、Review 和 CI 证据。
-3. Tree-sitter 建立 C++ 符号与调用关系。
-4. 在隔离 worktree 中增加白名单编译、测试和 Benchmark 工具。
-5. 使用历史 OpenCV Issue/PR 构建 30～50 条评测集。
+阶段 A（评测集 + 基线）和阶段 B（IDF + 路径先验）已完成，以下按优先级排列，每一项都必须报出相对基线的增量：
+
+1. **关键词抽取**：当前取正文前 6 个 token，够不到堆栈里的符号 —— 这是仅存的大头，20/60 个 case 的正确文件从未被检索到。改为按判别力选词。
+2. **文档长度归一（BM25 补完）**：处理内嵌 googletest 这类目录名不符合通用 vendored 约定的大文件，不靠仓库特有的特例。
+3. 让 Verifier 真正能拒绝：引入 LLM 综合结论，验证器回读文件核对引用行号，报告幻觉拒绝率。
+4. Tree-sitter 建立 C++ 符号与调用关系，把「文本命中」升级为「调用路径」。
+5. 按 `EvalCase.base_sha` 逐 case 检出父提交，消除快照评测的乐观偏差。
+6. GitHub Issue/PR/Review 作为新证据源；`git blame` 回答「这行为什么长这样」。

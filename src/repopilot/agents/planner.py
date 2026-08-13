@@ -16,26 +16,18 @@ class PlannerAgent:
             ]
             return state
 
-        evidence_by_path: dict[str, list[str]] = {}
-        for evidence in state.evidence:
-            evidence_by_path.setdefault(evidence.path, []).append(evidence.id)
-
-        ranked_paths = sorted(
-            evidence_by_path,
-            key=lambda path: len(evidence_by_path[path]),
-            reverse=True,
-        )[:5]
         state.plan = [
             PlanStep(
-                title=f"Inspect {path}",
+                title=f"Inspect {file.path}",
                 rationale=(
-                    f"This file has {len(evidence_by_path[path])} matched location(s); "
-                    "read surrounding definitions and callers before forming a causal claim."
+                    f"This file matches {file.keyword_count} query term(s) across "
+                    f"{file.evidence_count} location(s); read surrounding definitions and "
+                    "callers before forming a causal claim."
                 ),
-                evidence_ids=evidence_by_path[path][:5],
-                verification_command=f"rg -n --fixed-strings '<symbol>' {path}",
+                evidence_ids=file.evidence_ids[:5],
+                verification_command=f"git grep -n '<symbol>' -- {file.path}",
             )
-            for path in ranked_paths
+            for file in state.ranked_files[:5]
         ]
         state.plan.append(
             PlanStep(

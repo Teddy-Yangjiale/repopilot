@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Annotated
 
@@ -7,6 +8,7 @@ import typer
 
 from repopilot.container import get_orchestrator
 from repopilot.query_expansion import LLMConfigurationError
+from repopilot.ranking import DEFAULT_VENDORED_PENALTY
 
 app = typer.Typer(help="Evidence-driven repository maintenance agent.")
 
@@ -57,6 +59,110 @@ def list_tasks(limit: Annotated[int, typer.Option(min=1, max=100)] = 20) -> None
             f"{state.task_id}  {state.stage.value:14}  "
             f"{state.updated_at.isoformat()}  {state.question[:60]}"
         )
+
+
+@app.command("dataset-build")
+def dataset_build(
+    clone: Annotated[Path, typer.Option(exists=True, file_okay=False, resolve_path=True)],
+    out: Annotated[Path, typer.Option()],
+    repo: Annotated[str, typer.Option(help="GitHub slug, e.g. opencv/opencv")] = "opencv/opencv",
+    limit: Annotated[int, typer.Option(min=1, max=500)] = 50,
+    max_changed_files: Annotated[int, typer.Option(min=1, max=100)] = 10,
+) -> None:
+    """Build a localization dataset from closed issues fixed by a merged pull request."""
+    from repopilot.eval.dataset import save_dataset
+    from repopilot.eval.mining import DatasetMiningError, mine_dataset
+    from repopilot.tools.search_tools import list_tracked_files
+
+    tracked = set(list_tracked_files(clone))
+    try:
+        result = mine_dataset(repo, tracked, limit=limit, max_changed_files=max_changed_files)
+    except DatasetMiningError as exc:
+        typer.echo(f"Dataset error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    save_dataset(result.cases, out)
+    typer.echo(f"dataset={out}")
+    typer.echo(f"cases={len(result.cases)}")
+    for reason, count in result.stats.as_dict().items():
+        typer.echo(f"  {reason}={count}")
+
+
+@app.command("eval")
+def run_eval(
+    dataset: Annotated[Path, typer.Option(exists=True, dir_okay=False, resolve_path=True)],
+    repo: Annotated[Path, typer.Option(exists=True, file_okay=False, resolve_path=True)],
+    out: Annotated[Path, typer.Option(resolve_path=True)] = Path(".repopilot/eval"),
+    body_chars: Annotated[int, typer.Option(min=0, max=20_000)] = 600,
+    limit: Annotated[int, typer.Option(min=0, help="0 runs the whole dataset")] = 0,
+    use_llm: Annotated[bool, typer.Option("--use-llm/--no-llm")] = False,
+    use_idf: Annotated[
+        bool, typer.Option("--idf/--no-idf", help="Weight rare terms higher.")
+    ] = True,
+    vendored_penalty: Annotated[
+        float,
+        typer.Option(min=0.0, max=1.0, help="Score multiplier for vendored dirs; 1.0 disables."),
+    ] = DEFAULT_VENDORED_PENALTY,
+) -> None:
+    """Score retrieval against a dataset and write a reproducible report."""
+    from repopilot.agents import InvestigatorAgent
+    from repopilot.config import Settings
+    from repopilot.eval.dataset import load_dataset
+    from repopilot.eval.runner import (
+        EvalRun,
+        aggregate,
+        render_markdown,
+        resolve_snapshot_sha,
+        run_case,
+    )
+    from repopilot.llm import HelloAgentsKeywordGenerator
+    from repopilot.query_expansion import HybridQueryExpander
+    from repopilot.tools import CodeSearchTool
+
+    settings = Settings()
+    cases = load_dataset(dataset)
+    if limit:
+        cases = cases[:limit]
+
+    investigator = InvestigatorAgent(
+        search_tool=CodeSearchTool(),
+        query_expander=HybridQueryExpander(generator=HelloAgentsKeywordGenerator()),
+        max_results_per_keyword=settings.max_search_results,
+        context_lines=settings.context_lines,
+        timeout_seconds=settings.search_timeout_seconds,
+        use_idf=use_idf,
+        vendored_penalty=vendored_penalty,
+    )
+
+    results = []
+    with typer.progressbar(cases, label="Evaluating") as progress:
+        for case in progress:
+            results.append(run_case(case, repo, investigator, body_chars, use_llm))
+
+    ranking = "+".join(
+        part for part in ("idf" if use_idf else "", "prior" if vendored_penalty < 1.0 else "")
+        if part
+    ) or "none"
+    run = EvalRun(
+        dataset=str(dataset),
+        repo_path=str(repo),
+        snapshot_sha=resolve_snapshot_sha(repo),
+        strategy="hybrid" if use_llm else "deterministic",
+        body_chars=body_chars,
+        max_results_per_keyword=settings.max_search_results,
+        ranking=ranking,
+        metrics=aggregate(results),
+        results=results,
+    )
+
+    out.mkdir(parents=True, exist_ok=True)
+    stem = f"{run.strategy}-body{body_chars}-{ranking}"
+    (out / f"{stem}.json").write_text(json.dumps(run.as_dict(), indent=2), encoding="utf-8")
+    (out / f"{stem}.md").write_text(render_markdown(run), encoding="utf-8")
+
+    for key, value in run.metrics.items():
+        typer.echo(f"{key}={value:.3f}")
+    typer.echo(f"report={out / f'{stem}.md'}")
 
 
 if __name__ == "__main__":
