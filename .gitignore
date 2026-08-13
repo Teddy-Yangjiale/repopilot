@@ -8,3 +8,5 @@ __pycache__/
 .repopilot/
 # Local thinking log, not part of the public repo
 docs/THINKING_LOG.md
+# Private interview prep, local + desktop only
+docs/INTERVIEW_PREP.md
