@@ -68,15 +68,25 @@ def dataset_build(
     repo: Annotated[str, typer.Option(help="GitHub slug, e.g. opencv/opencv")] = "opencv/opencv",
     limit: Annotated[int, typer.Option(min=1, max=500)] = 50,
     max_changed_files: Annotated[int, typer.Option(min=1, max=100)] = 10,
+    backend: Annotated[
+        str,
+        typer.Option(help="graphql (issue -> merged PR) or rest (merged PR -> closes ref)"),
+    ] = "graphql",
 ) -> None:
     """Build a localization dataset from closed issues fixed by a merged pull request."""
     from repopilot.eval.dataset import save_dataset
     from repopilot.eval.mining import DatasetMiningError, mine_dataset
+    from repopilot.eval.mining_rest import mine_dataset_rest
     from repopilot.tools.search_tools import list_tracked_files
 
     tracked = set(list_tracked_files(clone))
     try:
-        result = mine_dataset(repo, tracked, limit=limit, max_changed_files=max_changed_files)
+        if backend == "rest":
+            result = mine_dataset_rest(
+                repo, tracked, limit=limit, max_changed_files=max_changed_files
+            )
+        else:
+            result = mine_dataset(repo, tracked, limit=limit, max_changed_files=max_changed_files)
     except DatasetMiningError as exc:
         typer.echo(f"Dataset error: {exc}", err=True)
         raise typer.Exit(code=2) from exc

@@ -113,6 +113,7 @@ Question ──▶ Investigator ──▶ Planner ──▶ Verifier ──▶ M
 | OpenCV | C++ | 60 | **0.664** | **0.767** | **0.487** | **0.654** | 0.66 s |
 | FastAPI | Python | 37 | 0.414 | 0.568 | 0.271 | 0.621 | 0.23 s |
 | Go 标准库 | Go | 20 | 0.296 | 0.400 | 0.200 | 0.429 | 0.80 s |
+| React | JS/TS | 30 | 0.425 | 0.533 | — | 0.520 | 0.41 s |
 
 ### OpenCV 三段迭代
 
@@ -165,6 +166,7 @@ Question ──▶ Investigator ──▶ Planner ──▶ Verifier ──▶ M
   --out datasets/opencv-issues.jsonl \
   --limit 60 \                     # 目标 case 数
   --max-changed-files 10           # PR 改动文件数上限（过滤大重构）
+  --backend graphql                # graphql（默认，issue→PR）或 rest（merged PR→closes 引用，用于 react 等）
 ```
 
 - 走 `gh` CLI 的 GraphQL（认证留在你的 `gh auth` 会话，Token 不进代码/数据集）。
@@ -290,7 +292,7 @@ make demo     # 端到端演示
 - [x] 快照偏差量化（`--at-base` 修复前代码评测）
 - [x] 跨仓库评测（OpenCV / FastAPI / Go）
 - [x] 去 SDK 依赖（手写 OpenAI 兼容客户端）
-- [ ] react 数据集（REST 挖掘，GraphQL search 对该仓库受限）
+- [x] react 数据集（REST 挖掘：GraphQL search 对该仓库返回 0，改用 merged PR 的 closes 引用）
 - [ ] 定义加权性能优化（当前 ~7x 延迟）
 - [ ] LLM 查询扩展的增量评测
 - [ ] GitHub Issue/PR/Review 作为新证据源

@@ -48,6 +48,8 @@ class MiningStats:
     body_too_short: int = 0
     duplicate_pr: int = 0
     gold_missing_at_snapshot: int = 0
+    # REST backend only: merged PR whose body has no closes/fixes/resolves reference.
+    no_closes_ref: int = 0
     accepted: int = 0
 
     def as_dict(self) -> dict[str, int]:
