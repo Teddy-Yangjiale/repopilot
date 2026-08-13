@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "repopilot"
-version = "0.7.0"
+version = "0.8.0"
 description = "Evidence-driven repository maintenance agent scaffold"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,6 +26,7 @@ dev = [
 # protocol with the standard library only. The group exists so `pip install -e ".[llm]"`
 # still marks LLM support as opted-in.
 llm = []
+symbols = ["tree-sitter>=0.24", "tree-sitter-cpp>=0.23"]
 
 [project.scripts]
 repopilot = "repopilot.cli:app"

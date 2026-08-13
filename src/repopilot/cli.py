@@ -115,6 +115,13 @@ def run_eval(
             help="Evaluate each case on its PR base commit (pre-merge code) via worktree.",
         ),
     ] = False,
+    refine_symbols: Annotated[
+        bool,
+        typer.Option(
+            "--refine-symbols/--no-refine-symbols",
+            help="Feed hit lines' enclosing function names back into the search to recall callers.",
+        ),
+    ] = False,
 ) -> None:
     """Score retrieval against a dataset and write a reproducible report."""
     from repopilot.agents import InvestigatorAgent
@@ -145,6 +152,7 @@ def run_eval(
         use_idf=use_idf,
         vendored_penalty=vendored_penalty,
         use_length_norm=length_norm,
+        refine_symbols=refine_symbols,
     )
 
     results = []
@@ -160,6 +168,7 @@ def run_eval(
             "idf" if use_idf else "",
             "prior" if vendored_penalty < 1.0 else "",
             "len" if length_norm else "",
+            "sym" if refine_symbols else "",
         )
         if part
     ) or "none"

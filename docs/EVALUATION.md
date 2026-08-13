@@ -187,7 +187,20 @@
 
 复现：`repopilot eval --dataset datasets/opencv-issues.jsonl --repo <官方 opencv 克隆> --at-base`。
 
-## 9. 复现
+## 9. Tree-sitter caller-recall 实验（负收益，已回退）
+
+把「文本命中」升级为「调用路径」的第一种尝试：对命中行的外围函数名做二次检索，期望召回调用者。tree-sitter 精确定位函数定义（`utils.cpp:241` → `icvCvt_BGRA2RGBA_16u_C4R`，与文档一致），但函数名作为关键词引入大量调用点/声明/测试噪声：
+
+| 指标 | 基线 | caller-recall | 差异 |
+|---|---:|---:|---:|
+| MRR | 0.487 | 0.368 | -0.119 |
+| Hit@1 | 0.367 | 0.217 | -0.150 |
+| Hit@10 | 0.767 | 0.733 | -0.034 |
+| 延迟 p50 | 660 ms | 2106 ms | +219% |
+
+**结论**：修复位置是「定义」而非「调用者」——调用者召回方向性错误。正确方向是「定义 vs 使用」加权：命中行是函数定义（而非调用/声明/注释）时才加分。基础设施（`symbols.py`、`--refine-symbols` 开关、`symbols` 可选 extra）保留供后续实验。
+
+## 10. 复现
 
 ```bash
 .venv/bin/repopilot eval \

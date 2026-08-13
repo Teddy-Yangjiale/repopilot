@@ -9,7 +9,17 @@ from repopilot.models import (
 )
 from repopilot.query_expansion import HybridQueryExpander
 from repopilot.ranking import DEFAULT_VENDORED_PENALTY, rank_files
+from repopilot.symbols import enclosing_function
 from repopilot.tools.search_tools import CodeSearchTool, SearchRequest, SearchResult
+
+# Function names too generic to act as a discriminating symbol for caller recall.
+_GENERIC_FUNCTION_NAMES = frozenset(
+    {
+        "main", "run", "init", "apply", "process", "handle", "get", "set",
+        "test", "setup", "create", "parse", "build", "make", "call", "execute",
+        "convert", "write", "read", "open", "close", "start", "stop",
+    }
+)
 
 
 class InvestigatorAgent:
@@ -25,6 +35,10 @@ class InvestigatorAgent:
         use_idf: bool = True,
         vendored_penalty: float = DEFAULT_VENDORED_PENALTY,
         use_length_norm: bool = False,
+        # When True, the enclosing function names of hit lines are fed back into the
+        # search as refined keywords, recalling callers via the text search. Off by
+        # default and exposed for evaluation ablation.
+        refine_symbols: bool = False,
         max_ranked_files: int = 50,
     ) -> None:
         self.search_tool = search_tool
@@ -36,6 +50,7 @@ class InvestigatorAgent:
         self.use_idf = use_idf
         self.vendored_penalty = vendored_penalty
         self.use_length_norm = use_length_norm
+        self.refine_symbols = refine_symbols
         # Every file matching any keyword is scored, but the tail is not worth persisting to
         # SQLite or returning over HTTP on every request.
         self.max_ranked_files = max_ranked_files
@@ -66,10 +81,52 @@ class InvestigatorAgent:
             for keyword in keywords
         ]
 
+        if self.refine_symbols:
+            results = results + self._refine_symbols(state, results)
+
         state.evidence = self._deduplicate_evidence(results)
         state.ranked_files = self._rank(results, {item.id for item in state.evidence})
         state.findings = self._summarise(state)
         return state
+
+    def _refine_symbols(self, state: TaskState, results: list[SearchResult]) -> list[SearchResult]:
+        """Re-search the enclosing function names of top hit lines to recall callers.
+
+        Calls `enclosing_function` on a bounded set of hit lines (top files by hit count,
+        a few lines each), keeps non-generic names, and runs the ordinary text search on
+        them. The names become additional SearchResults that flow through the exact same
+        ranking, so the effect is one measurable signal, not a separate scoring path.
+        """
+
+        matched_files = sorted(
+            (match for result in results for match in result.matches),
+            key=lambda match: -len(match.hit_lines),
+        )
+        names: list[str] = []
+        seen: set[str] = set()
+        for match in matched_files[:10]:
+            for line in match.hit_lines[:3]:
+                function = enclosing_function(state.repo_path / match.path, line)
+                if function is None or function.name in seen:
+                    continue
+                seen.add(function.name)
+                if function.name not in _GENERIC_FUNCTION_NAMES and len(function.name) >= 5:
+                    names.append(function.name)
+            if len(names) >= 5:
+                break
+
+        return [
+            self.search_tool.run(
+                SearchRequest(
+                    repo_path=state.repo_path,
+                    keyword=name,
+                    limit=self.max_results_per_keyword,
+                    context_lines=self.context_lines,
+                    timeout_seconds=self.timeout_seconds,
+                )
+            )
+            for name in names
+        ]
 
     def _deduplicate_evidence(self, results: list[SearchResult]) -> list[Evidence]:
         """The same keyword hitting the same line range is one piece of evidence.
