@@ -120,6 +120,73 @@ class CodeSearchTool(Tool[SearchRequest, SearchResult]):
     def _scan(
         self, root: Path, keyword: str, timeout_seconds: float
     ) -> tuple[list[FileMatches], int, int]:
+        """Try the index-scoped `git grep` backend first; fall back to the Python scan.
+
+        `git grep` searches only tracked files at C speed, which keeps the scan cheap on
+        large repositories (the 60k-file OpenCV tree scans in a few hundred ms instead of
+        ~2s of Python). If it is unavailable or fails for any reason we degrade to the
+        pure-Python scan, which is also the path the deadline safety net was built for.
+        """
+
+        try:
+            return self._scan_git_grep(root, keyword, timeout_seconds)
+        except (subprocess.SubprocessError, OSError, RuntimeError, ValueError):
+            return self._scan_python(root, keyword, timeout_seconds)
+
+    def _scan_git_grep(
+        self, root: Path, keyword: str, timeout_seconds: float
+    ) -> tuple[list[FileMatches], int, int]:
+        """git-grep backend: hit lines come from `git grep -n -z`, corpus size from ls-files.
+
+        `total_lines` is unknown without reading every file, so length normalisation is
+        unavailable on this backend (it is off by default; see ranking.py).
+        """
+
+        files = list_tracked_files(root, timeout_seconds)
+        corpus_files = len(files)
+        grep = subprocess.run(
+            [
+                "git", "-C", str(root), "grep", "-n", "-F", "-z", "--no-color",
+                "--", keyword,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+        if grep.returncode not in (0, 1):  # 1 means "no matches", which is fine
+            raise RuntimeError(f"git grep failed: {grep.stderr[:200]}")
+
+        hit_lines_by_path: dict[str, list[int]] = {}
+        # `git grep -z` separates path/lineno/content with NUL but a content line is
+        # terminated by newline (the next path is NOT NUL-prefixed), so split by lines
+        # first and then by NUL — splitting the whole stream on NUL would glue the
+        # previous content onto the next path and corrupt every following match.
+        for line in grep.stdout.splitlines():
+            parts = line.split("\0", 2)
+            if len(parts) != 3:
+                continue
+            path, lineno, _content = parts
+            try:
+                hit_lines_by_path.setdefault(path, []).append(int(lineno))
+            except ValueError:
+                continue
+
+        # Keep the same size semantics as the Python backend: drop hits in files that
+        # would be excluded there (oversized), so IDF denominators stay comparable.
+        matches: list[FileMatches] = []
+        for path, hit_lines in hit_lines_by_path.items():
+            try:
+                if (root / path).stat().st_size > MAX_SEARCHABLE_FILE_BYTES:
+                    continue
+            except OSError:
+                continue
+            matches.append(FileMatches(path=path, hit_lines=hit_lines, total_lines=0))
+        return matches, corpus_files, 0
+
+    def _scan_python(
+        self, root: Path, keyword: str, timeout_seconds: float
+    ) -> tuple[list[FileMatches], int, int]:
         """First pass records where the keyword occurs; snippets are built later for kept files.
 
         Also counts how many files were searched and their total line count. Both counts feed

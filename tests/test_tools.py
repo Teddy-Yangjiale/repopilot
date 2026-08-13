@@ -47,8 +47,41 @@ def test_search_skips_binary_files(sample_repo: Path) -> None:
     assert CodeSearchTool().run(SearchRequest(sample_repo, "marker")).evidence == []
 
 
+def test_git_grep_and_python_scan_agree(sample_repo: Path) -> None:
+    """Both backends must report the same hit files and hit counts."""
+    import repopilot.tools.search_tools as search_tools
+
+    (sample_repo / "extra.cpp").write_text("marker\n", "utf-8")
+    _commit_all(sample_repo)
+
+    tool = search_tools.CodeSearchTool()
+    gg = tool._scan_git_grep(sample_repo, "marker", 10.0)
+    py = tool._scan_python(sample_repo, "marker", 10.0)
+
+    gg_hits = {m.path: len(m.hit_lines) for m in gg[0]}
+    py_hits = {m.path: len(m.hit_lines) for m in py[0]}
+    assert gg_hits == py_hits
+
+
+def test_search_falls_back_to_python_scan(sample_repo: Path, monkeypatch) -> None:
+    """If git grep is unavailable the Python scan must still produce results."""
+    import repopilot.tools.search_tools as search_tools
+
+    def boom(self, root, keyword, timeout_seconds):
+        raise RuntimeError("git grep unavailable")
+
+    monkeypatch.setattr(search_tools.CodeSearchTool, "_scan_git_grep", boom)
+
+    result = search_tools.CodeSearchTool().run(
+        search_tools.SearchRequest(sample_repo, "invoke_with_tools")
+    )
+
+    assert result.evidence
+    assert result.evidence[0].path == "agent.py"
+
+
 def test_search_scan_stops_at_deadline(sample_repo: Path, monkeypatch) -> None:
-    """The timeout must bound the Python scan loop, not just the `git ls-files` call."""
+    """The timeout must bound the Python scan loop when git grep is unavailable."""
     import repopilot.tools.search_tools as search_tools
 
     (sample_repo / "extra.cpp").write_text("marker\n", "utf-8")
@@ -61,7 +94,11 @@ def test_search_scan_stops_at_deadline(sample_repo: Path, monkeypatch) -> None:
         # First call computes the deadline; every later call is past it.
         return 100.0 if calls["count"] == 1 else 200.0
 
+    def boom(self, root, keyword, timeout_seconds):
+        raise RuntimeError("forced fallback to the Python scan")
+
     monkeypatch.setattr(search_tools.time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(search_tools.CodeSearchTool, "_scan_git_grep", boom)
 
     result = search_tools.CodeSearchTool().run(
         search_tools.SearchRequest(sample_repo, "marker", timeout_seconds=1.0)
