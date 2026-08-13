@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="python">
   <img src="https://img.shields.io/badge/tests-52%20passing-brightgreen" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
-  <img src="https://img.shields.io/badge/eval-117%20real%20cases-orange" alt="eval">
+  <img src="https://img.shields.io/badge/eval-237%20real%20cases-orange" alt="eval">
 </p>
 
 **RepoPilot 是一个证据驱动的代码仓库维护 Agent**：给定一个仓库问题，它搜索真实源码，产出**带行级引用的调查结论与验证计划**，并**拒绝没有证据支持的结论**。
@@ -18,7 +18,7 @@
 
 - 🎯 **证据驱动**：结论必须锚定 `Evidence.id`（行级引用），无引用即拒绝
 - 🔗 **引用真实性回读**：Verifier 回读文件，确认关键词确实出现在引用行号处
-- ⚖️ **评测驱动迭代**：每次检索改动都在 117 个真实 GitHub issue 上报告增量（Hit@10 0.283 → 0.767）
+- ⚖️ **评测驱动迭代**：每次检索改动都在 237 个真实 GitHub issue（7 仓库、5 生态）上报告增量（Hit@10 0.283 → 0.767）
 - 🌐 **仓库无关**：在 OpenCV（C++）、FastAPI（Python）、Go 标准库三个生态实测
 - 🚀 **快**：`git grep` 后端，OpenCV 全库单关键词 0.66s（纯 Python 扫描的 1/3）
 - 🧩 **零重依赖**：运行时核心仅 5 个库，LLM 客户端用标准库手写
@@ -106,14 +106,17 @@ Question ──▶ Investigator ──▶ Planner ──▶ Verifier ──▶ M
 
 每一次检索改动都必须在一把**公开的尺子**上报告数字。任务定义：**给定一个真实 GitHub issue，能否指出这次修复实际改动的文件？** 标准答案来自关闭该 issue 的已合并 PR——**维护者用一次真实代码评审背书**，不是人工标注。
 
-### 主结果（117 个真实 case，deterministic 策略，不调任何模型）
+### 主结果（237 个真实 case，7 个仓库，deterministic 策略，不调任何模型）
 
-| 数据集 | 语言 | case 数 | Recall@10 | Hit@10 | MRR | 无泄漏 Hit@10 | 延迟 p50 |
-|---|---|---:|---:|---:|---:|---:|---:|
-| OpenCV | C++ | 60 | **0.664** | **0.767** | **0.487** | **0.654** | 0.66 s |
-| FastAPI | Python | 37 | 0.414 | 0.568 | 0.271 | 0.621 | 0.23 s |
-| Go 标准库 | Go | 20 | 0.296 | 0.400 | 0.200 | 0.429 | 0.80 s |
-| React | JS/TS | 30 | 0.425 | 0.533 | — | 0.520 | 0.41 s |
+| 数据集 | 语言 | case 数 | Recall@10 | Hit@10 | MRR | 无泄漏 Hit@10 |
+|---|---|---:|---:|---:|---:|---:|
+| Redis | C | 30 | 0.808 | **0.900** | 0.674 | 0.800 |
+| Vue | JS | 30 | 0.595 | 0.800 | 0.533 | 0.826 |
+| OpenCV | C++ | 60 | 0.664 | 0.767 | 0.487 | 0.654 |
+| Flask | Python | 30 | 0.639 | 0.767 | 0.482 | 0.800 |
+| FastAPI | Python | 37 | 0.414 | 0.568 | 0.271 | 0.621 |
+| React | JS/TS | 30 | 0.425 | 0.533 | — | 0.520 |
+| Go 标准库 | Go | 20 | 0.296 | 0.400 | 0.200 | 0.429 |
 
 ### OpenCV 三段迭代
 

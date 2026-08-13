@@ -251,3 +251,26 @@ def test_run_case_at_base_uses_premerge_worktree(sample_repo: Path) -> None:
     assert at_base.evidence_count == 0  # the fix is invisible on the base commit
     assert at_base.gold_missing_at_base is False  # agent.py itself exists at base
     assert not list(Path("/tmp").glob("rp-base-*"))  # worktrees were cleaned up
+
+
+def test_definition_bonus_boosts_signature_hits() -> None:
+    """A definition hit (function signature) outweighs a same-count use hit."""
+    from repopilot.ranking import rank_files
+    from repopilot.tools.search_tools import FileMatches, SearchResult
+
+    def_file = FileMatches(
+        path="def.cpp", hit_lines=[1, 2], total_lines=10, definition_lines=[1, 2]
+    )
+    use_file = FileMatches(
+        path="aaa_use.cpp", hit_lines=[1, 2], total_lines=10, definition_lines=[]
+    )
+    result = SearchResult(
+        keyword="k", corpus_files=100, corpus_total_lines=1000,
+        matches=[def_file, use_file], evidence=[],
+    )
+
+    without = [f.path for f in rank_files([result], definition_bonus=0.0)]
+    with_bonus = [f.path for f in rank_files([result], definition_bonus=1.0)]
+
+    assert without[0] == "aaa_use.cpp"  # tie broken by path when the bonus is off
+    assert with_bonus[0] == "def.cpp"   # signature hits now outweigh use hits
