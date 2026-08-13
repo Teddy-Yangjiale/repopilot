@@ -120,7 +120,7 @@ def run_eval(
         resolve_snapshot_sha,
         run_case,
     )
-    from repopilot.llm import HelloAgentsKeywordGenerator
+    from repopilot.llm import DeepSeekKeywordGenerator
     from repopilot.query_expansion import HybridQueryExpander
     from repopilot.tools import CodeSearchTool
 
@@ -131,7 +131,7 @@ def run_eval(
 
     investigator = InvestigatorAgent(
         search_tool=CodeSearchTool(),
-        query_expander=HybridQueryExpander(generator=HelloAgentsKeywordGenerator()),
+        query_expander=HybridQueryExpander(generator=DeepSeekKeywordGenerator()),
         max_results_per_keyword=settings.max_search_results,
         context_lines=settings.context_lines,
         timeout_seconds=settings.search_timeout_seconds,

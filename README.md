@@ -47,7 +47,7 @@ make api
 
 ### 可选：使用 DeepSeek 扩展查询
 
-基础流程不需要任何 API Key。只有显式传入 `--use-llm` 时，RepoPilot 才会通过 HelloAgents 调用 OpenAI 兼容的 DeepSeek API：
+基础流程不需要任何 API Key。只有显式传入 `--use-llm` 时，RepoPilot 才会调用 OpenAI 兼容的 DeepSeek API——客户端用标准库手写（`llm/deepseek.py`，零 SDK 依赖，协议透明）：
 
 ```bash
 ./scripts/setup.sh --llm
@@ -73,7 +73,7 @@ src/repopilot/
   config.py           配置与路径校验
   models.py           Agent 间的类型化协议
   query_expansion.py  确定性与 LLM 混合查询扩展
-  llm/                HelloAgents / DeepSeek 边界适配器
+  llm/                DeepSeek 边界适配器（OpenAI 兼容，标准库实现）
   orchestrator.py     状态机与 Checkpoint 边界
   store.py            SQLite 持久化
   report.py           可复现 Markdown 报告

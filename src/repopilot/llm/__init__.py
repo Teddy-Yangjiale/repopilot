@@ -1,3 +1,3 @@
-from repopilot.llm.hello_agents import HelloAgentsKeywordGenerator
+from repopilot.llm.deepseek import DeepSeekKeywordGenerator
 
-__all__ = ["HelloAgentsKeywordGenerator"]
+__all__ = ["DeepSeekKeywordGenerator"]

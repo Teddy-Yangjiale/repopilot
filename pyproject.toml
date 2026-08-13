@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "repopilot"
-version = "0.4.0"
+version = "0.5.0"
 description = "Evidence-driven repository maintenance agent scaffold"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -22,7 +22,10 @@ dev = [
   "pytest>=8.3,<10.0",
   "ruff>=0.8,<1.0",
 ]
-llm = ["hello-agents>=1.0.0,<2.0.0"]
+# llm extra is dependency-free: the DeepSeek adapter speaks the OpenAI-compatible
+# protocol with the standard library only. The group exists so `pip install -e ".[llm]"`
+# still marks LLM support as opted-in.
+llm = []
 
 [project.scripts]
 repopilot = "repopilot.cli:app"

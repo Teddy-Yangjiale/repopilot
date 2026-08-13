@@ -81,13 +81,13 @@ Agent 决定“做什么”，工具决定“怎么安全执行”。分离后�
 
 ### `query_expansion.py`
 
-这里定义了模型无关的 `KeywordGenerator` Protocol，因此核心流程不依赖 HelloAgents 的具体类型，测试也能注入 Fake Generator。模型输出先经过 JSON schema 检查、长度限制、换行拒绝和大小写去重，再进入只读搜索工具。即使没有 shell 权限，也要把模型输出视为不可信输入；这是为未来工具能力扩展提前建立的边界。
+这里定义了模型无关的 `KeywordGenerator` Protocol，因此核心流程不依赖具体 LLM 客户端，测试也能注入 Fake Generator。模型输出先经过 JSON schema 检查、长度限制、换行拒绝和大小写去重，再进入只读搜索工具。即使没有 shell 权限，也要把模型输出视为不可信输入；这是为未来工具能力扩展提前建立的边界。
 
-### `llm/hello_agents.py`
+### `llm/deepseek.py`
 
-适配器只获得“给一个问题，返回关键词”的窄权限，不获得仓库路径、文件读取或命令执行能力。它使用 HelloAgents 的统一 `HelloAgentsLLM` 接口连接 DeepSeek 的 OpenAI 兼容端点，并把温度设为 0，减少结构化任务的随机性。
+适配器只获得“给一个问题，返回关键词”的窄权限，不获得仓库路径、文件读取或命令执行能力。它**用标准库 `urllib` 直接实现 OpenAI 兼容的 chat/completions 客户端**（POST `{base_url}/chat/completions`，temperature=0），不依赖任何 LLM SDK——协议透明、可测试、可审计。401 映射为配置错误（Key 无效），网络/JSON 异常抛给上层降级。
 
-导入 HelloAgents 和读取 API Key 都延迟到 `--use-llm` 真正执行时，因此未安装可选依赖、没有 Key 的用户仍能运行确定性版本。`.env` 被 Git 忽略，TaskState 只记录模型名、延迟和关键词，绝不保存 Key。
+读取 API Key 延迟到 `--use-llm` 真正执行时，没有 Key 的用户仍能运行确定性版本。`.env` 被 Git 忽略，TaskState 只记录模型名、延迟和关键词，绝不保存 Key。
 
 当前查询扩展不是 Function Calling：模型只返回 JSON，工具循环仍由确定性 Orchestrator 控制。这样更容易测试和归因。等查询召回评测稳定后，再让模型从只读工具白名单里选工具，而不是一次扩大全部权限。
 

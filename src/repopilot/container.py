@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 from repopilot.agents import InvestigatorAgent, PlannerAgent, VerifierAgent
 from repopilot.config import Settings
-from repopilot.llm import HelloAgentsKeywordGenerator
+from repopilot.llm import DeepSeekKeywordGenerator
 from repopilot.orchestrator import RepoPilotOrchestrator
 from repopilot.query_expansion import HybridQueryExpander
 from repopilot.store import TaskStore
@@ -23,7 +23,7 @@ def get_orchestrator() -> RepoPilotOrchestrator:
     state_dir = settings.resolve_state_dir(PROJECT_ROOT)
     investigator = InvestigatorAgent(
         search_tool=CodeSearchTool(),
-        query_expander=HybridQueryExpander(generator=HelloAgentsKeywordGenerator()),
+        query_expander=HybridQueryExpander(generator=DeepSeekKeywordGenerator()),
         max_results_per_keyword=settings.max_search_results,
         context_lines=settings.context_lines,
         timeout_seconds=settings.search_timeout_seconds,

@@ -19,6 +19,6 @@ fi
 echo
 echo "RepoPilot environment is ready."
 if [[ "$EXTRAS" == "dev,llm" ]]; then
-  echo "HelloAgents support is installed. Copy .env.example to .env and set LLM_API_KEY."
+  echo "LLM support is ready (zero extra dependencies). Copy .env.example to .env and set LLM_API_KEY."
 fi
 echo "Run: cd $ROOT && make demo"
