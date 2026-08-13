@@ -108,6 +108,13 @@ def run_eval(
         typer.Option("--length-norm/--no-length-norm",
                      help="Dilute term frequency by doc length (experimental)."),
     ] = False,
+    at_base: Annotated[
+        bool,
+        typer.Option(
+            "--at-base/--at-head",
+            help="Evaluate each case on its PR base commit (pre-merge code) via worktree.",
+        ),
+    ] = False,
 ) -> None:
     """Score retrieval against a dataset and write a reproducible report."""
     from repopilot.agents import InvestigatorAgent
@@ -143,7 +150,9 @@ def run_eval(
     results = []
     with typer.progressbar(cases, label="Evaluating") as progress:
         for case in progress:
-            results.append(run_case(case, repo, investigator, body_chars, use_llm))
+            results.append(
+                run_case(case, repo, investigator, body_chars, use_llm, at_base=at_base)
+            )
 
     ranking = "+".join(
         part
@@ -162,12 +171,15 @@ def run_eval(
         body_chars=body_chars,
         max_results_per_keyword=settings.max_search_results,
         ranking=ranking,
+        at_base=at_base,
         metrics=aggregate(results),
         results=results,
     )
 
     out.mkdir(parents=True, exist_ok=True)
-    stem = f"{run.strategy}-body{body_chars}-{ranking}"
+    dataset_tag = Path(dataset).stem.replace("-issues", "")
+    suffix = "-base" if at_base else ""
+    stem = f"{dataset_tag}{suffix}-{run.strategy}-body{body_chars}-{ranking}"
     (out / f"{stem}.json").write_text(json.dumps(run.as_dict(), indent=2), encoding="utf-8")
     (out / f"{stem}.md").write_text(render_markdown(run), encoding="utf-8")
 

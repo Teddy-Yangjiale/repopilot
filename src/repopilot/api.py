@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from repopilot.container import get_orchestrator
 from repopilot.models import TaskState
 
-app = FastAPI(title="RepoPilot", version="0.6.0")
+app = FastAPI(title="RepoPilot", version="0.7.0")
 
 
 class InvestigateRequest(BaseModel):

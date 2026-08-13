@@ -70,6 +70,14 @@ class DeterministicKeywordExtractor:
             "running", "sample", "steps", "summary", "system", "test", "testing",
             "tests", "use", "used", "using", "value", "values", "version", "work",
             "working", "works",
+            # GitHub conversation/cross-referencing boilerplate (any repo's issues).
+            "breaking", "changelog", "comment", "comments", "commit", "commits",
+            "cve", "discussed", "github", "mention", "mentioned", "mentions",
+            "milestone", "originally", "posted", "release", "released", "releases",
+            "reply", "replied", "review", "thread", "thanks",
+            # Calendar words that only appear in quoted discussion dates.
+            "january", "february", "march", "april", "june", "july", "august",
+            "september", "october", "november", "december",
         }
     )
 
@@ -134,13 +142,9 @@ class DeterministicKeywordExtractor:
             if shape >= self.BODY_SYMBOL_THRESHOLD:
                 add(token, shape)
 
-        # Fallback: if symbols alone cannot fill the budget, take body words in
-        # appearance order. Boilerplate is demoted by its negative shape score and
-        # only surfaces when nothing better exists.
-        if len(candidates) < self.limit:
-            for token in self.SYMBOL_RE.findall(body):
-                add(token, 0.0)
-
+        # No body-prose fallback: ordinary words from the body (quoted discussion,
+        # template filler) are noise, not recall. A short but precise keyword list
+        # beats a padded one — the limit is a cap, not a target.
         candidates.sort(key=lambda item: (-item[1], item[2]))
         return [token for token, _score, _order in candidates[: self.limit]]
 

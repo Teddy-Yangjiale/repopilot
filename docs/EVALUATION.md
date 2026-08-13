@@ -171,7 +171,23 @@
 
 **阶段 D 尝试：BM25 长度归一（负收益，已回退）**。为打击 `ts_gtest.h`（22245 行）这类大文件，实现了 BM25 式长度归一并加了消融开关，实测 Hit@10 **0.750 → 0.283**：opencv 语料平均行数仅 430（大量小头文件），正确的核心实现文件（如 `cap_ffmpeg_impl.hpp` 3779 行）远大于均值被降权 85%，小文档被 boost 冲到 top。**长度归一假设「长度≈冗余度」只对网页/新闻类语料成立；代码仓库里大文件=核心实现**。已回退默认关闭，代码与 `--length-norm` 实验开关保留；行数统计已进入搜索协议，留给更合适的归一形式（如按文件类型区分）。
 
-## 8. 复现
+## 8. 快照偏差实测（2026-08-14，base 快照评测）
+
+`--at-base` 模式在官方 `opencv/opencv` 克隆上逐 case 用临时 worktree 检出 PR 的 base commit（修复前代码）评测，与 HEAD 快照对比：
+
+| 指标 | HEAD 快照（乐观） | base 快照（修复前） | 差异 |
+|---|---:|---:|---:|
+| Hit@10 | 0.767 | 0.733 | -0.034 |
+| Recall@10 | 0.664 | 0.608 | -0.056 |
+| MRR | 0.487 | 0.410 | -0.077 |
+| Hit@1 | 0.367 | 0.267 | -0.100 |
+| 无泄漏 Hit@10 | 0.654 | 0.615 | -0.039 |
+
+60 个 case 的 base commit 在官方仓库全部可用（0 缺失；私有 fork 会缺上游历史，已如实标记为 `base_unavailable`）。偏差方向与第 4 节预测一致（乐观），Hit@1 高估最严重（+0.100）。gold 文件在 base commit 上不存在的 case 会被标记（`gold_missing_at_base`）而非静默丢弃。
+
+复现：`repopilot eval --dataset datasets/opencv-issues.jsonl --repo <官方 opencv 克隆> --at-base`。
+
+## 9. 复现
 
 ```bash
 .venv/bin/repopilot eval \

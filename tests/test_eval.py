@@ -197,3 +197,57 @@ def test_documentation_files_are_demoted_but_not_hidden() -> None:
     assert demoted[0] == "fastapi/routing.py"
     assert disabled[0] == "docs/en/docs/release-notes.md"  # tie broken by path without the prior
     assert "docs/en/docs/release-notes.md" in demoted  # demoted, not dropped
+
+
+def test_run_case_at_base_uses_premerge_worktree(sample_repo: Path) -> None:
+    """at_base=True evaluates on the PR base commit: post-fix code must be invisible."""
+    import subprocess
+    from datetime import UTC, datetime
+
+    from repopilot.agents import InvestigatorAgent
+    from repopilot.eval.dataset import EvalCase
+    from repopilot.eval.runner import run_case
+    from repopilot.query_expansion import HybridQueryExpander
+    from repopilot.tools import CodeSearchTool
+
+    base_sha = subprocess.run(
+        ["git", "-C", str(sample_repo), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    # Simulate the merged fix: a new marker line lands after base_sha.
+    (sample_repo / "agent.py").write_text(
+        (sample_repo / "agent.py").read_text(encoding="utf-8") + "\n# marker_fix\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "-C", str(sample_repo), "add", "-A"], check=True)
+    subprocess.run(
+        ["git", "-C", str(sample_repo), "-c", "user.name=t", "-c", "user.email=t@e.invalid",
+         "commit", "-qm", "the fix"],
+        check=True,
+    )
+
+    case = EvalCase(
+        case_id="repo-1",
+        repo="o/r",
+        issue_number=1,
+        issue_url="https://example.invalid/1",
+        title="marker_fix",
+        body="marker_fix appears only after the fix",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        pr_number=2,
+        base_sha=base_sha,
+        gold_files=["agent.py"],
+        changed_files_total=1,
+        body_mentions_gold_path=False,
+    )
+    investigator = InvestigatorAgent(
+        search_tool=CodeSearchTool(), query_expander=HybridQueryExpander()
+    )
+
+    at_head = run_case(case, sample_repo, investigator, 600, False, at_base=False)
+    at_base = run_case(case, sample_repo, investigator, 600, False, at_base=True)
+
+    assert at_head.evidence_count > 0  # the fix is visible at HEAD
+    assert at_base.evidence_count == 0  # the fix is invisible on the base commit
+    assert at_base.gold_missing_at_base is False  # agent.py itself exists at base
+    assert not list(Path("/tmp").glob("rp-base-*"))  # worktrees were cleaned up
