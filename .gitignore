@@ -10,3 +10,6 @@ __pycache__/
 docs/THINKING_LOG.md
 # Private interview prep, local + desktop only
 docs/INTERVIEW_PREP.md
+# setuptools build artifacts
+build/
+dist/
