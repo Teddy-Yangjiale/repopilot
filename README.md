@@ -1,158 +1,302 @@
-# RepoPilot
+# 🔍 RepoPilot
 
-RepoPilot 是一个面向大型代码仓库的**证据驱动维护 Agent**。它接收一个仓库问题，搜索真实源码，生成带引用的调查结论和验证计划，并拒绝没有证据支持的结论。
+<p align="center">
+  <img src="https://img.shields.io/badge/version-0.10.0-blue" alt="version">
+  <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="python">
+  <img src="https://img.shields.io/badge/tests-52%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
+  <img src="https://img.shields.io/badge/eval-117%20real%20cases-orange" alt="eval">
+</p>
 
-当前状态：只读闭环（检索 → 引用 → 计划 → 验证 → 报告）已跑通；可选 DeepSeek 查询扩展；检索在 60 个真实 OpenCV issue 上以「合并 PR 改动文件」为答案评测（Hit@10 0.283 → 0.750，三段迭代，全部数字可复现）：
+**RepoPilot 是一个证据驱动的代码仓库维护 Agent**：给定一个仓库问题，它搜索真实源码，产出**带行级引用的调查结论与验证计划**，并**拒绝没有证据支持的结论**。
 
-```text
-Question -> Investigator -> Planner -> Verifier -> Markdown Report
-               ^    |            |          |
-  Deterministic + optional LLM    |          |
-                Evidence      Plan   Citation Gate
-                  |             |    (存在性 + 行号回读)
-                    \________ SQLite Checkpoint ________/
-```
+> 不是"生成答案"，而是"调查并给出可验证的证据"——每一条结论都锚定真实的 `文件:行号` 引用，验证器会回读文件核对引用是否真实存在。
 
-## 为什么先做只读版本
+---
 
-自动修改代码的风险远高于代码搜索。第一阶段先验证三件事：能否找到正确文件、能否形成可追溯结论、能否在中断后恢复。等这些指标稳定，再增加补丁生成、编译和 Benchmark 工具。
+## ✨ 特性
 
-## 立即运行
+- 🎯 **证据驱动**：结论必须锚定 `Evidence.id`（行级引用），无引用即拒绝
+- 🔗 **引用真实性回读**：Verifier 回读文件，确认关键词确实出现在引用行号处
+- ⚖️ **评测驱动迭代**：每次检索改动都在 117 个真实 GitHub issue 上报告增量（Hit@10 0.283 → 0.767）
+- 🌐 **仓库无关**：在 OpenCV（C++）、FastAPI（Python）、Go 标准库三个生态实测
+- 🚀 **快**：`git grep` 后端，OpenCV 全库单关键词 0.66s（纯 Python 扫描的 1/3）
+- 🧩 **零重依赖**：运行时核心仅 5 个库，LLM 客户端用标准库手写
+- 🔁 **断点续跑**：SQLite checkpoint，进程中断后从阶段边界恢复
+- 🛡️ **只读安全**：无 shell 执行/文件写入/网络访问，路径严格限制在仓库内
+
+---
+
+## 📖 目录
+
+- [快速开始](#-快速开始)
+- [工作原理](#-工作原理)
+- [评测结果](#-评测结果)
+- [详细使用教程](#-详细使用教程)
+- [项目结构](#-项目结构)
+- [安全边界](#-安全边界)
+- [开发与测试](#-开发与测试)
+- [路线图](#-路线图)
+- [License](#-license)
+
+---
+
+## 🚀 快速开始
+
+### 环境要求
+
+- Python ≥ 3.11
+- Git
+- （可选）`gh` CLI —— 仅构建评测数据集时需要
+
+### 安装
 
 ```bash
-cd /home/teddy/repopilot
-./scripts/setup.sh
+git clone https://github.com/Teddy-Yangjiale/repopilot.git
+cd repopilot
+./scripts/setup.sh          # 创建 venv 并安装基础依赖
+# 或 ./scripts/setup.sh --llm   # 同时启用 LLM 扩展（无需额外依赖）
+```
 
-# 分析任意本地 Git 仓库（--repo 接受任何仓库，不限于特定语言或项目）
-.venv/bin/repopilot investigate \
-  --repo /home/teddy/repos/fastapi \
-  --question "How does FastAPI build the OpenAPI schema from dependencies?"
-# 关键词会自动按判别力提取；也可显式指定（优先级最高）：
-.venv/bin/repopilot investigate \
-  --repo /home/teddy/hello-agents-lab/references/hello-agents-framework \
-  --question "How does ReActAgent execute tools and stop?" \
-  --keyword ReActAgent --keyword invoke_with_tools --keyword Finish
+### 30 秒跑通
 
-# 查看任务列表
+```bash
+# 分析任意本地 Git 仓库（自动按判别力提取关键词）
+.venv/bin/repopilot investigate \
+  --repo /path/to/any/git/repo \
+  --question "How does the HTTP server handle request routing?"
+
+# 显式指定关键词（优先级最高，不触发 LLM）
+.venv/bin/repopilot investigate \
+  --repo /path/to/repo \
+  --question "How does X work?" \
+  --keyword SymbolA --keyword symbol_b
+
+# 查看任务列表 & 从 checkpoint 恢复
 .venv/bin/repopilot tasks
-
-# 从 Checkpoint 恢复
 .venv/bin/repopilot resume <task-id>
-
-# 启动 API
-make api
 ```
 
-如果不传 `--keyword`，系统会按判别力自动提取关键词（符号形状 + 标题保底 + 宏过滤 + 符号族去重），并在排序时对 vendored 依赖与文档/变更日志类文件做通用降权——这两类几乎从不是代码修复的目标位置，规则是通用约定，不针对任何单一仓库调参。
+输出是一份 Markdown 报告（`.repopilot/reports/<task-id>.md`），包含：**Verified findings**（带行级引用）、**Investigation plan**（下一步只读检查）、**Evidence inventory**（完整证据表）。
 
-### 可选：使用 DeepSeek 扩展查询
+---
 
-基础流程不需要任何 API Key。只有显式传入 `--use-llm` 时，RepoPilot 才会调用 OpenAI 兼容的 DeepSeek API——客户端用标准库手写（`llm/deepseek.py`，零 SDK 依赖，协议透明）：
+## 🧠 工作原理
+
+```
+Question ──▶ Investigator ──▶ Planner ──▶ Verifier ──▶ Markdown Report
+              │ 检索+排序      │ 生成计划      │ 引用门禁
+              │ keywords       │ plan          │ verified/partial/rejected
+              │ evidence       │               │ (存在性 + 行号回读)
+              │ ranked_files   ▼               ▼
+              └──────────── SQLite Checkpoint ────────────┘
+```
+
+**三阶段流水线**：
+
+1. **Investigator（调查员）**——只收集证据，不做因果推断。按判别力选词（符号形状 + 标题保底 + 宏过滤 + 符号族去重）→ `git grep` 检索 → IDF + 路径先验 + 通用降权排序。
+2. **Planner（规划者）**——把证据转成调查计划，明确"文本命中 ≠ 运行时执行"，不发明代码事实。
+3. **Verifier（验证者）**——确定性引用门禁：结论引用的 `Evidence.id` 必须真实存在，**且回读文件确认关键词出现在引用行号处**（防伪造行号/过时 snippet）。
+
+**防幻觉四层**：检索层只收集不做因果推断 → 结论必须锚定引用 → Verifier 回读验证真实性 → 置信度封顶 0.95 + 报告声明"只证明文本命中"。
+
+---
+
+## 📊 评测结果
+
+每一次检索改动都必须在一把**公开的尺子**上报告数字。任务定义：**给定一个真实 GitHub issue，能否指出这次修复实际改动的文件？** 标准答案来自关闭该 issue 的已合并 PR——**维护者用一次真实代码评审背书**，不是人工标注。
+
+### 主结果（117 个真实 case，deterministic 策略，不调任何模型）
+
+| 数据集 | 语言 | case 数 | Recall@10 | Hit@10 | MRR | 无泄漏 Hit@10 | 延迟 p50 |
+|---|---|---:|---:|---:|---:|---:|---:|
+| OpenCV | C++ | 60 | **0.664** | **0.767** | **0.487** | **0.654** | 0.66 s |
+| FastAPI | Python | 37 | 0.414 | 0.568 | 0.271 | 0.621 | 0.23 s |
+| Go 标准库 | Go | 20 | 0.296 | 0.400 | 0.200 | 0.429 | 0.80 s |
+
+### OpenCV 三段迭代
+
+| 阶段 | Recall@10 | Hit@10 | MRR | 无泄漏 Hit@10 |
+|---|---:|---:|---:|---:|
+| 阶段 A 字面匹配基线 | 0.183 | 0.283 | 0.170 | 0.231 |
+| 阶段 B（IDF + 路径先验） | 0.472 | 0.583 | 0.390 | 0.423 |
+| **阶段 C（判别力选词 + git grep）** | **0.664** | **0.767** | **0.487** | **0.654** |
+
+### 诚实性声明（主动暴露，而非被追问）
+
+- **无泄漏子集单独报**：正文直接贴出答案路径的 case 会抬高分数（真实输入，不算作弊），所以「正文未提及答案文件」的子集单独统计——那才是诚实下界。
+- **快照偏差已量化**：默认在 HEAD 快照评测（修复代码已在树里，乐观）。`--at-base` 在修复前代码上重测：Hit@10 0.767 → 0.733、MRR 0.487 → 0.410。
+- **两个负收益实验如实记录**：BM25 长度归一（0.750 → 0.283）、tree-sitter 调用者召回（MRR 0.487 → 0.368）都被真实数据证伪并回退。
+- 完整消融表、失败模式分析、偏差声明见 [`docs/EVALUATION.md`](docs/EVALUATION.md)。
+
+---
+
+## 🛠️ 详细使用教程
+
+### 1. `investigate` —— 创建并运行一次调查
 
 ```bash
-./scripts/setup.sh --llm
-cp .env.example .env
-# 编辑 .env，只填写你自己的 LLM_API_KEY；不要提交这个文件
-
 .venv/bin/repopilot investigate \
-  --repo /home/teddy/hello-agents-lab/references/hello-agents-framework \
-  --question "How does ReActAgent execute tools and stop?" \
-  --use-llm
+  --repo /path/to/repo \            # 必须，已存在的 Git 仓库目录
+  --question "..." \                # 必须，≥3 字符的问题
+  --keyword SymbolA \               # 可选，可重复；显式指定优先级最高
+  --keyword symbol_b \
+  --use-llm                         # 可选，启用 DeepSeek 查询扩展（默认关闭）
 ```
 
-混合策略会先生成确定性关键词，再合并模型给出的符号候选。网络或模型输出异常时自动退回确定性基线，并把 `hybrid_fallback` 和错误摘要写进任务状态；缺少 API Key 或依赖则直接给出配置错误，避免用户误以为模型已生效。显式 `--keyword` 的优先级最高，不会额外产生模型费用。
+- **关键词提取**：不传 `--keyword` 时自动按判别力提取（堆栈符号、CamelCase/snake_case 标识符优先，样板词降权）。
+- **`--use-llm`**：先生成确定性关键词，再合并模型候选；模型异常自动降级为 `hybrid_fallback`（写进报告），缺 Key 显式报配置错误。
+- **输出**：终端打印 `task_id / stage / evidence 数 / 查询策略 / 报告路径`，报告写在 `.repopilot/reports/`。
 
-## 项目结构
+### 2. `tasks` / `resume` —— 任务管理与断点恢复
 
-```text
-src/repopilot/
-  agents/             Investigator / Planner / Verifier
-  tools/              受控只读工具
-  api.py              FastAPI 接口
-  cli.py              命令行入口
-  config.py           配置与路径校验
-  models.py           Agent 间的类型化协议
-  query_expansion.py  确定性与 LLM 混合查询扩展
-  llm/                DeepSeek 边界适配器（OpenAI 兼容，标准库实现）
-  orchestrator.py     状态机与 Checkpoint 边界
-  store.py            SQLite 持久化
-  report.py           可复现 Markdown 报告
-tests/                 单元测试、集成测试和 API 测试
-docs/INTERVIEW_GUIDE.md 逐文件面试讲解
+```bash
+.venv/bin/repopilot tasks                    # 列出最近 20 个任务
+.venv/bin/repopilot tasks --limit 50         # 自定义数量
+.venv/bin/repopilot resume <task-id>         # 从最后 checkpoint 恢复（幂等）
 ```
 
-## API
+### 3. `dataset-build` —— 从真实 issue 构建评测集
+
+```bash
+.venv/bin/repopilot dataset-build \
+  --clone /path/to/repo \          # 本地克隆（提供 tracked 文件列表）
+  --repo opencv/opencv \           # GitHub slug
+  --out datasets/opencv-issues.jsonl \
+  --limit 60 \                     # 目标 case 数
+  --max-changed-files 10           # PR 改动文件数上限（过滤大重构）
+```
+
+- 走 `gh` CLI 的 GraphQL（认证留在你的 `gh auth` 会话，Token 不进代码/数据集）。
+- 六条过滤规则（PR 必须 merged、改动 ≤10 文件、只留源码扩展名、正文 ≥80 字符、同 PR 去重、gold 文件在当前快照存在），每条丢弃多少都会打印。
+
+### 4. `eval` —— 跑检索评测（全部开关）
+
+```bash
+.venv/bin/repopilot eval \
+  --dataset datasets/opencv-issues.jsonl \
+  --repo /path/to/repo \
+  --limit 0                        # 0 = 全量；正数 = 只跑前 N 个 case
+```
+
+| 开关 | 默认 | 作用 |
+|---|---|---|
+| `--body-chars` | 600 | 喂给检索器的 issue 正文预算（0 = 只用标题） |
+| `--use-llm` | false | 启用 LLM 查询扩展 |
+| `--idf / --no-idf` | 开 | IDF 加权 |
+| `--vendored-penalty` | 0.1 | vendored 目录降权系数（1.0 = 关闭） |
+| `--length-norm / --no-length-norm` | 关 | BM25 长度归一（实验，实测负收益） |
+| `--at-base / --at-head` | head | 在 PR 修复前代码上评测（消除快照偏差） |
+| `--refine-symbols` | 关 | 函数名二次检索（实验，负收益） |
+| `--definition-bonus` | 0.0 | tree-sitter 定义命中加权（0 关闭，建议 1.0~1.5） |
+
+输出写 `.repopilot/eval/<dataset>-<strategy>-body<n>-<ranking>.{json,md}`，JSON 里包含完整配置 + 每 case 明细——**脱离配置的分数没有意义，所以两者存在一起**。
+
+### 5. REST API
+
+```bash
+make api   # 启动于 127.0.0.1:8000
+```
+
+| 端点 | 说明 |
+|---|---|
+| `GET /health` | 健康检查 |
+| `POST /v1/tasks/investigate` | 创建并运行调查 |
+| `GET /v1/tasks/{id}` | 查询任务状态 |
+| `POST /v1/tasks/{id}/resume` | 从 checkpoint 恢复 |
 
 ```bash
 curl -X POST http://127.0.0.1:8000/v1/tasks/investigate \
   -H 'Content-Type: application/json' \
   -d '{
-    "repo_path": "/home/teddy/hello-agents-lab/references/hello-agents-framework",
+    "repo_path": "/path/to/repo",
     "question": "How does the ReAct loop work?",
-    "keywords": ["ReActAgent", "invoke_with_tools", "Finish"],
+    "keywords": ["ReActAgent", "Finish"],
     "use_llm": false
   }'
 ```
 
-## 检索评测（阶段 A）
+### 6. 可选能力
 
-RepoPilot 的每一次检索改动都必须先在一把公开的尺子上报数字。任务定义是：**给定一个真实 GitHub issue，能否指出这次修复实际改动的文件？** 标准答案来自关闭该 issue 的已合并 PR —— 不是人工标注，而是维护者用一次真实代码评审背书过的。
-
-```bash
-# 构建数据集（走你已有的 gh auth 会话，Token 不进代码）
-.venv/bin/repopilot dataset-build --clone /home/teddy/opencv \
-  --out datasets/opencv-issues.jsonl --limit 60
-
-# 跑评测
-.venv/bin/repopilot eval --dataset datasets/opencv-issues.jsonl --repo /home/teddy/opencv
-```
-
-**当前结果**（60 个 OpenCV case，`deterministic` 策略，不调用任何模型）：
-
-| 阶段 | Recall@10 | Hit@10 | MRR | 无泄漏 Hit@10 | 延迟 p50 |
-|---|---:|---:|---:|---:|---:|
-| 阶段 A 字面匹配基线 | 0.183 | 0.283 | 0.170 | 0.231 | 3.4 s |
-| 阶段 B（IDF + 路径先验） | 0.472 | 0.583 | 0.390 | 0.423 | 2.8 s |
-| **阶段 C（判别力选词 + git grep 后端）** | **0.664** | **0.767** | **0.487** | **0.654** | **0.66 s** |
-| 阶段 C @ 修复前代码（base 快照，官方仓库） | 0.608 | 0.733 | 0.410 | 0.615 | 0.62 s |
-| fastapi（37 case，判别力选词） | 0.414 | 0.568 | 0.271 | 0.621 | 0.23 s |
-| golang/go（20 case，判别力选词） | 0.296 | 0.400 | 0.200 | 0.429 | 0.80 s |
-
-阶段 A 的基线低得很有规律：top-3 预测有 61% 落在 `3rdparty/` 下，而标准答案里占比是 0%。根因是字面匹配没有 IDF、没有路径先验。诊断把失败劈成两半：21/60 是排序问题（正确文件已在候选集，只是排名 > 10），22/60 是召回问题（从未被检索到）。
-
-阶段 B 只改排序，**排序问题从 21 个降到 5 个，召回问题几乎没动（22 → 20）—— 与诊断预测一致**，`3rdparty/` 在 top-3 的占比降到 0.0%。四臂消融显示 IDF 是最大单项贡献，路径先验主要改善 top-1（Hit@1 0.150 → 0.300）。
-
-阶段 C 改的是关键词抽取而非排序：抽取器从「取正文前 6 个 token」改为按判别力选词——堆栈里的符号（`icvCvt_BGRA2RGBA_16u_C4R`）现在会进入关键词，报告样板词（`System`/`Information`）不再挤占名额；编译宏（`-DOPENCV_*`）被剥离，同一符号族的兄弟 case（`int32x4_CPP_EMULATOR` 系列）只保留一个代表。**检索到的正确文件数（Hit@10 的命中池）从 35/60 升到 45/60**，正文未提及答案文件的严格子集上 Hit@10 从 0.423 提到 0.615（+45%）。延迟 p50 约 1.9s，与阶段 B 同量级——关键词抽取不改变逐文件扫描成本，延迟差异主要来自测量环境，不归功于本阶段。
-
-诚实的下界：在「正文未提及答案文件」的最严格子集上，Hit@10 从 0.231（阶段 A）→ 0.423（阶段 B）→ 0.615（阶段 C）。完整消融表、归因和局限见 [docs/EVALUATION.md](docs/EVALUATION.md)。
-
-**快照偏差已量化**：默认评测在仓库 HEAD 快照上跑（修复代码已在树里，乐观）。`--at-base` 模式在官方仓库上逐 case 检出 PR 的 base commit（修复前代码）评测——Hit@10 从 0.767 降到 0.733、MRR 0.487 → 0.410，这就是乐观偏差的实测幅度。跨仓库验证：fastapi 数据集（37 case）Hit@10 0.568，正文未提及答案文件的子集 0.621。
-
-方法、过滤规则、三条已知偏差和完整失败模式分析见 [docs/EVALUATION.md](docs/EVALUATION.md)。
-
-## 安全边界
-
-- 仓库路径必须存在且是 Git 仓库。
-- 第一阶段不提供 shell 执行、文件写入、网络访问或 Git 修改工具。
-- 文件读取限制在仓库根目录内部，并限制最大字节数。
-- 搜索优先用 `git grep`（git 索引、C 速度、天然只搜 tracked 文件），不可用时自动降级为纯 Python 逐行扫描；两者都用参数数组启动子进程、不经 shell。OpenCV 全库单关键词 p50 从 ~1.9s 降到 ~0.66s（-65%）。
-- 报告明确区分 `verified`、`partial` 和 `rejected`。
-
-## 验证
+**DeepSeek 查询扩展**（零额外依赖，标准库手写客户端）：
 
 ```bash
-make lint
-make test
-make demo
+./scripts/setup.sh --llm
+cp .env.example .env
+# 编辑 .env，填写 LLM_API_KEY（不要提交）
+.venv/bin/repopilot investigate --repo ... --question ... --use-llm
 ```
 
-## 下一阶段
+**tree-sitter 符号增强**（可选 extra）：
 
-阶段 A（评测集 + 基线）、阶段 B（IDF + 路径先验）和阶段 C（判别力选词）已完成，以下按优先级排列，每一项都必须报出相对基线的增量：
+```bash
+.venv/bin/pip install -e ".[symbols]"      # 安装 tree-sitter + C++ grammar
+# 定义命中加权（命中函数签名行 > 命中函数体），提升 MRR ~0.06，代价是延迟
+.venv/bin/repopilot eval --dataset ... --repo ... --definition-bonus 1.5
+```
 
-1. ~~**关键词抽取**~~ **已完成（阶段 C）**：按判别力选词（符号形状 + 标题保底 + 宏过滤 + 符号族去重），Hit@10 0.583 → 0.750，无泄漏子集 0.423 → 0.615。
-2. ~~**文档长度归一（BM25 补完）**~~ **实测负收益，已回退**：BM25 长度归一假设「长度≈冗余度」，对代码仓库方向性错误（大文件=核心实现，实测 Hit@10 0.750 → 0.283）。代码与 `--length-norm` 实验开关保留，默认关闭；行数统计已进入搜索协议，留给更合适的归一形式。
-3. ~~**让 Verifier 真正能拒绝**~~ **引用真实性回读已完成（阶段 E）**：验证器回读文件确认关键词出现在引用行号处，抓伪造行号；过程中暴露并修复了证据去重键与回读缓存两个数据流 bug。LLM 综合结论与幻觉拒绝率统计留待后续。
-4. **Tree-sitter 定义加权（opt-in）**：`--definition-bonus` 对命中函数签名的行额外加权（定义命中 > 使用命中）。全量评测正收益（MRR 0.487 → 0.549、Hit@1 0.367 → 0.424、Hit@10 0.767 → 0.788），但延迟 ~6 倍且无泄漏子集略降（0.654 → 0.615），故默认关。caller-recall（函数名二次检索）实测负收益已回退。
-5. ~~**按 `EvalCase.base_sha` 逐 case 检出父提交**~~ **已完成**：`--at-base` 模式用临时 worktree 在官方仓库的修复前代码上评测，快照偏差实测为 Hit@10 0.767 → 0.733。
-6. GitHub Issue/PR/Review 作为新证据源；`git blame` 回答「这行为什么长这样」。
+---
+
+## 📁 项目结构
+
+```text
+src/repopilot/
+  agents/             Investigator / Planner / Verifier 三阶段
+  tools/              受控只读工具（搜索/读取/Git/路径安全）
+  symbols.py          tree-sitter 符号定位（函数/定义 vs 使用）
+  api.py              FastAPI 接口
+  cli.py              Typer 命令行入口
+  config.py           配置与路径校验
+  models.py           Agent 间类型化协议（TaskState/Evidence/...）
+  query_expansion.py  确定性与 LLM 混合查询扩展
+  ranking.py          IDF + 路径先验 + 通用降权排序
+  llm/                DeepSeek 边界适配器（OpenAI 兼容，标准库实现）
+  orchestrator.py     显式状态机 + Checkpoint
+  store.py            SQLite 持久化（WAL）
+  report.py           可复现 Markdown 报告
+  eval/               评测：数据集挖掘/指标/runner
+tests/                52 个测试（单元/集成/API）
+docs/                 评测方法与面试讲解
+```
+
+---
+
+## 🔒 安全边界
+
+- 仓库路径必须存在且是 Git 仓库
+- **只读**：不提供 shell 执行、文件写入、网络访问或 Git 修改工具
+- 文件读取限制在仓库根目录内，限制最大字节数（默认 200KB）
+- 搜索用 `git grep`（参数数组启动，不经 shell），不可用自动降级纯 Python 扫描
+- 报告明确区分 `verified` / `partial` / `rejected`
+
+---
+
+## 🧪 开发与测试
+
+```bash
+make lint     # ruff
+make test     # pytest（52 个用例，全绿）
+make demo     # 端到端演示
+```
+
+测试会临时创建真实 Git 仓库（含二进制、untracked 产物等陷阱），不依赖开发机上的任何仓库，CI 可复现。
+
+---
+
+## 🗺️ 路线图
+
+- [x] 阶段 A/B/C：检索评测闭环，Hit@10 0.283 → 0.767
+- [x] 引用真实性回读（Verifier 第二道闸门）
+- [x] 快照偏差量化（`--at-base` 修复前代码评测）
+- [x] 跨仓库评测（OpenCV / FastAPI / Go）
+- [x] 去 SDK 依赖（手写 OpenAI 兼容客户端）
+- [ ] react 数据集（REST 挖掘，GraphQL search 对该仓库受限）
+- [ ] 定义加权性能优化（当前 ~7x 延迟）
+- [ ] LLM 查询扩展的增量评测
+- [ ] GitHub Issue/PR/Review 作为新证据源
+
+---
+
+## 📄 License
+
+[MIT](LICENSE) © 2026 Teddy Yangjiale
