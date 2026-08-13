@@ -9,7 +9,8 @@ from repopilot.eval.dataset import EvalCase
 
 SOURCE_SUFFIXES = frozenset(
     {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hxx", ".cu", ".cl",
-     ".py", ".java", ".js", ".m", ".mm", ".kt", ".rs", ".go"}
+     ".py", ".java", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+     ".m", ".mm", ".kt", ".rs", ".go"}
 )
 
 SEARCH_QUERY = """
