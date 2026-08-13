@@ -37,3 +37,20 @@ class SafeFileReader(Tool[ReadRequest, str]):
             f"{number}: {line}"
             for number, line in enumerate(selected, start=request.line_start)
         )
+
+    def find_lines(
+        self, repo_path: Path, relative_path: str, keyword: str, limit: int = 20
+    ) -> list[int]:
+        """Locate a focus term safely when issue line numbers have drifted."""
+
+        root = resolve_repo_root(repo_path)
+        path = resolve_inside_repo(root, relative_path)
+        if path.stat().st_size > self.max_file_bytes:
+            raise ValueError(f"file exceeds {self.max_file_bytes} bytes: {relative_path}")
+        needle = keyword.casefold()
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        return [
+            number
+            for number, line in enumerate(lines, start=1)
+            if needle in line.casefold()
+        ][:limit]

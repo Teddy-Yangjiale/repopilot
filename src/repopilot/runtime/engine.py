@@ -50,7 +50,9 @@ class AgentRuntime:
                 decision = self.policy.decide(run, self.tools.schemas)
                 status = AgentStepStatus.SUCCEEDED
                 try:
+                    self.tools.validate(decision.tool_name, decision.arguments)
                     self._reject_duplicate(run, decision.tool_name, decision.arguments)
+                    self._validate_read_target(run, decision.tool_name, decision.arguments)
                     observation = self.tools.execute(
                         decision.tool_name, run.repo_path, decision.arguments
                     )
@@ -99,6 +101,24 @@ class AgentRuntime:
         if fingerprint in previous:
             raise ToolExecutionError("duplicate action rejected; choose a different next step")
 
+    def _validate_read_target(
+        self, run: AgentRun, tool_name: str, arguments: dict[str, object]
+    ) -> None:
+        if tool_name != "read_file":
+            return
+        path = str(arguments.get("path") or "")
+        discovered_paths = {
+            str(path)
+            for step in run.steps
+            if step.decision.tool_name == "search_code"
+            and step.status == AgentStepStatus.SUCCEEDED
+            for path in step.observation.metadata.get("paths", [])
+        }
+        if path not in discovered_paths:
+            raise ToolExecutionError(
+                f"read_file path {path!r} was not discovered by search_code in this run"
+            )
+
     def _finish(
         self,
         run: AgentRun,
@@ -114,6 +134,7 @@ class AgentRuntime:
                 f"finish cited unknown evidence IDs: {', '.join(sorted(missing))}"
             )
         run.final_answer = observation.content
+        run.final_claims = arguments.claims
         run.final_evidence_ids = arguments.evidence_ids
         run.status = AgentRunStatus.COMPLETED
 

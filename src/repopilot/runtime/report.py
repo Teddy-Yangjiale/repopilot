@@ -38,6 +38,15 @@ def render_agent_report(run: AgentRun) -> str:
         )
 
     lines.extend(["## Final answer", "", run.final_answer or "_(no final answer)_", ""])
+    if run.final_claims:
+        lines.extend(["## Claim / evidence coverage", ""])
+        for index, claim in enumerate(run.final_claims, start=1):
+            citations = []
+            for evidence_id in claim.evidence_ids:
+                item = evidence_by_id.get(evidence_id)
+                citations.append(item.citation if item else f"unknown:{evidence_id}")
+            lines.append(f"{index}. {claim.statement} — {', '.join(citations)}")
+        lines.append("")
     if run.final_evidence_ids:
         lines.extend(["## Final citations", ""])
         for evidence_id in run.final_evidence_ids:

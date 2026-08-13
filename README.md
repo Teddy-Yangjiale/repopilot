@@ -1,9 +1,9 @@
 # 🔍 RepoPilot
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.17.0-blue" alt="version">
+  <img src="https://img.shields.io/badge/version-0.18.0-blue" alt="version">
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="python">
-  <img src="https://img.shields.io/badge/tests-61%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-68%20passing-brightgreen" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
   <img src="https://img.shields.io/badge/eval-362%20real%20cases-orange" alt="eval">
 </p>
@@ -113,7 +113,7 @@ Question ──▶ Investigator ──▶ Planner ──▶ Verifier ──▶ M
 
 ## 🤖 Agent Runtime
 
-v0.17 在原有确定性调查流水线之外，加入了可恢复的 **Plan → Act → Observe** 运行时。DeepSeek 通过原生 Tool Calling 选择下一步，但执行权始终留在本地白名单工具中；每一步的动作、观察、引用、延迟和 token 用量都会写入 SQLite trajectory。
+v0.18 在原有确定性调查流水线之外，加入了可恢复的 **Plan → Act → Observe** 运行时。DeepSeek 通过原生 Tool Calling 选择调查动作，最终化阶段使用 JSON Output 生成逐条 Claim→Evidence 绑定；执行权和引用校验始终留在本地确定性代码中。每一步的动作、观察、引用、延迟和 token 用量都会写入 SQLite trajectory。
 
 ```bash
 # .env 中配置 DeepSeek 兼容接口后运行
@@ -124,9 +124,15 @@ v0.17 在原有确定性调查流水线之外，加入了可恢复的 **Plan →
 
 # 中断或失败后从最后一个已持久化步骤继续
 .venv/bin/repopilot agent-resume <run-id>
+
+# 在真实 Issue / merged PR gold files 上评测动态 Agent
+.venv/bin/repopilot agent-eval \
+  --dataset datasets/opencv-issues.jsonl \
+  --repo /path/to/opencv \
+  --clean-only --limit 10
 ```
 
-运行时只开放四个能力明确的工具：`search_code`、`read_file`、`git_history`、`finish`。它不提供任意 shell、代码执行或文件写入；同时设置步数/时间预算、拒绝重复动作，并在 `finish` 时校验所有引用 ID 确实来自本次 trajectory。架构对比和面试讲法见 [`docs/AGENT_RUNTIME.md`](docs/AGENT_RUNTIME.md)。
+运行时只开放四个能力明确的工具：`search_code`、`read_file`、`git_history`、`finish`。它不提供任意 shell、代码执行或文件写入；同时设置步数/时间预算、拒绝重复动作，并在 `finish` 时校验每条 Claim 的引用 ID 确实来自本次 trajectory。架构对比见 [`docs/AGENT_RUNTIME.md`](docs/AGENT_RUNTIME.md)，首个动态 Agent 基准见 [`docs/AGENT_EVALUATION.md`](docs/AGENT_EVALUATION.md)。
 
 ---
 
@@ -308,7 +314,7 @@ src/repopilot/
   store.py            SQLite 持久化（WAL）
   report.py           可复现 Markdown 报告
   eval/               评测：数据集挖掘/指标/runner
-tests/                61 个测试（单元/集成/API/Agent Runtime）
+tests/                68 个测试（单元/集成/API/Agent Runtime/Evaluation）
 docs/                 评测方法与面试讲解
 ```
 
@@ -328,7 +334,7 @@ docs/                 评测方法与面试讲解
 
 ```bash
 make lint     # ruff
-make test     # pytest（61 个用例，全绿）
+make test     # pytest（68 个用例，全绿）
 make demo     # 端到端演示
 ```
 
@@ -347,7 +353,8 @@ make demo     # 端到端演示
 - [ ] 定义加权性能优化（当前 ~7x 延迟）
 - [x] LLM 查询扩展的增量评测（hybrid Hit@10 0.767→0.817、MRR 0.487→0.569，延迟 5x）
 - [x] 原生 Tool Calling Agent Runtime（逐步 checkpoint、预算、重复动作与引用门禁）
-- [ ] 20–30 个真实仓库问题的 Agent trajectory/cost/success 评测
+- [x] 首个无路径泄漏 Agent 小基准（OpenCV 10 case，完成率 1.00，final gold-file hit 0.70）
+- [ ] 扩展到 20–30 case，并增加 PR base snapshot 与语义支持度评测
 - [ ] GitHub Issue/PR/Review 作为新证据源
 
 ---

@@ -121,6 +121,96 @@ def resume_agent(run_id: str) -> None:
     typer.echo(f"report={report}")
 
 
+@app.command("agent-eval")
+def run_agent_eval(
+    dataset: Annotated[Path, typer.Option(exists=True, dir_okay=False, resolve_path=True)],
+    repo: Annotated[Path, typer.Option(exists=True, file_okay=False, resolve_path=True)],
+    out: Annotated[Path, typer.Option(resolve_path=True)] = Path(".repopilot/agent-eval"),
+    body_chars: Annotated[int, typer.Option(min=0, max=20_000)] = 1_200,
+    limit: Annotated[
+        int,
+        typer.Option(min=1, max=100, help="Paid model cases to run; default is deliberately 5."),
+    ] = 5,
+    clean_only: Annotated[
+        bool,
+        typer.Option(
+            "--clean-only/--all-cases",
+            help="Exclude issues whose text already names a merged-PR gold file.",
+        ),
+    ] = False,
+    max_steps: Annotated[int, typer.Option(min=1, max=30)] = 8,
+    timeout_seconds: Annotated[float, typer.Option(min=1, max=1800)] = 120,
+    at_base: Annotated[
+        bool,
+        typer.Option(
+            "--at-base/--at-head",
+            help="Run each issue on its pre-merge PR base commit via a temporary worktree.",
+        ),
+    ] = False,
+) -> None:
+    """Evaluate multi-step Agent trajectories against merged-PR gold files."""
+    from repopilot.eval.agent_runner import (
+        build_agent_eval_run,
+        render_agent_eval_markdown,
+        run_agent_case,
+        select_agent_eval_cases,
+    )
+    from repopilot.eval.dataset import load_dataset
+    from repopilot.llm.deepseek import DeepSeekConfig
+    from repopilot.runtime.policy import DeepSeekToolPolicy
+    from repopilot.runtime.service import AgentService
+    from repopilot.runtime.store import AgentRunStore
+
+    try:
+        config = DeepSeekConfig.from_env()
+    except LLMConfigurationError as exc:
+        typer.echo(f"Configuration error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    cases = select_agent_eval_cases(load_dataset(dataset), limit, clean_only=clean_only)
+    out.mkdir(parents=True, exist_ok=True)
+    service = AgentService(
+        policy=DeepSeekToolPolicy(config),
+        store=AgentRunStore(out / "agent_eval.db"),
+        report_dir=out / "trajectories",
+    )
+    results = []
+    with typer.progressbar(cases, label="Evaluating Agent") as progress:
+        for case in progress:
+            results.append(
+                run_agent_case(
+                    case,
+                    repo,
+                    service,
+                    body_chars=body_chars,
+                    max_steps=max_steps,
+                    timeout_seconds=timeout_seconds,
+                    at_base=at_base,
+                )
+            )
+
+    run = build_agent_eval_run(
+        dataset,
+        repo,
+        body_chars,
+        max_steps,
+        timeout_seconds,
+        config.model,
+        at_base,
+        results,
+    )
+    dataset_tag = dataset.stem.replace("-issues", "")
+    snapshot_tag = "base" if at_base else "head"
+    stem = f"{dataset_tag}-agent-{snapshot_tag}-n{len(cases)}"
+    json_path = out / f"{stem}.json"
+    report_path = out / f"{stem}.md"
+    json_path.write_text(json.dumps(run.as_dict(), indent=2), encoding="utf-8")
+    report_path.write_text(render_agent_eval_markdown(run), encoding="utf-8")
+    for key, value in run.metrics.items():
+        typer.echo(f"{key}={value:.3f}")
+    typer.echo(f"report={report_path}")
+
+
 @app.command("tasks")
 def list_tasks(limit: Annotated[int, typer.Option(min=1, max=100)] = 20) -> None:
     """List recent persisted tasks."""

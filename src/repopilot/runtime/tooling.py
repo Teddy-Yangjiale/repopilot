@@ -9,7 +9,7 @@ from typing import ClassVar
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from repopilot.models import Evidence
-from repopilot.runtime.models import ToolObservation
+from repopilot.runtime.models import CitedClaim, ToolObservation
 from repopilot.tools import CodeSearchTool, SafeFileReader
 from repopilot.tools.read_tools import ReadRequest
 from repopilot.tools.search_tools import SearchRequest
@@ -46,8 +46,28 @@ class GitHistoryArguments(ToolArguments):
 
 
 class FinishArguments(ToolArguments):
-    answer: str = Field(min_length=20, max_length=12_000)
-    evidence_ids: list[str] = Field(min_length=1, max_length=30)
+    claims: list[CitedClaim] = Field(min_length=1, max_length=12)
+    limitations: list[str] = Field(default_factory=list, max_length=5)
+
+    @property
+    def evidence_ids(self) -> list[str]:
+        return list(
+            dict.fromkeys(
+                evidence_id
+                for claim in self.claims
+                for evidence_id in claim.evidence_ids
+            )
+        )
+
+    def render_answer(self) -> str:
+        lines = [
+            f"- {claim.statement} [{', '.join(claim.evidence_ids)}]"
+            for claim in self.claims
+        ]
+        if self.limitations:
+            lines.extend(["", "Limitations:"])
+            lines.extend(f"- {item}" for item in self.limitations)
+        return "\n".join(lines)
 
 
 class RuntimeTool(ABC):
@@ -110,6 +130,7 @@ class SearchCodeRuntimeTool(RuntimeTool):
                 "keyword": arguments.keyword,
                 "matched_files": len(result.matches),
                 "corpus_files": result.corpus_files,
+                "paths": [item.path for item in ranked],
             },
         )
 
@@ -131,29 +152,64 @@ class ReadFileRuntimeTool(RuntimeTool):
             raise ToolExecutionError("line_end must be greater than or equal to line_start")
         if arguments.line_end - arguments.line_start > 300:
             raise ToolExecutionError("a read_file action may read at most 301 lines")
+        effective_start = arguments.line_start
+        effective_end = arguments.line_end
         content = self.reader.run(
             ReadRequest(
                 repo_path=repo_path,
                 relative_path=arguments.path,
-                line_start=arguments.line_start,
-                line_end=arguments.line_end,
+                line_start=effective_start,
+                line_end=effective_end,
             )
         )
+        relocated_from: str | None = None
         if arguments.focus_keyword.casefold() not in content.casefold():
-            raise ToolExecutionError(
-                f"focus_keyword {arguments.focus_keyword!r} is absent from the requested range"
+            hit_lines = self.reader.find_lines(
+                repo_path, arguments.path, arguments.focus_keyword
             )
+            if not hit_lines:
+                raise ToolExecutionError(
+                    f"focus_keyword {arguments.focus_keyword!r} is absent from {arguments.path}"
+                )
+            requested_center = (arguments.line_start + arguments.line_end) // 2
+            nearest = min(hit_lines, key=lambda line: abs(line - requested_center))
+            requested_size = arguments.line_end - arguments.line_start + 1
+            effective_start = max(1, nearest - requested_size // 2)
+            effective_end = effective_start + requested_size - 1
+            content = self.reader.run(
+                ReadRequest(
+                    repo_path=repo_path,
+                    relative_path=arguments.path,
+                    line_start=effective_start,
+                    line_end=effective_end,
+                )
+            )
+            relocated_from = f"{arguments.line_start}-{arguments.line_end}"
         actual_line_count = len(content.splitlines())
-        actual_line_end = arguments.line_start + max(0, actual_line_count - 1)
+        actual_line_end = effective_start + max(0, actual_line_count - 1)
         evidence = Evidence(
             path=arguments.path,
-            line_start=arguments.line_start,
+            line_start=effective_start,
             line_end=actual_line_end,
             snippet=content,
             keyword=arguments.focus_keyword,
             source="agent_read_file",
         )
-        return ToolObservation(content=content, evidence=[evidence])
+        observation = content
+        if relocated_from:
+            observation = (
+                f"[read_file relocated stale range {relocated_from} to "
+                f"{effective_start}-{actual_line_end}]\n{content}"
+            )
+        return ToolObservation(
+            content=observation,
+            evidence=[evidence],
+            metadata={
+                "relocated": bool(relocated_from),
+                "requested_range": relocated_from,
+                "effective_range": f"{effective_start}-{actual_line_end}",
+            },
+        )
 
 
 class GitHistoryRuntimeTool(RuntimeTool):
@@ -191,15 +247,15 @@ class GitHistoryRuntimeTool(RuntimeTool):
 class FinishRuntimeTool(RuntimeTool):
     name = "finish"
     description = (
-        "Finish only when the answer is supported by collected evidence IDs. Explain the "
-        "code path and limitations; never claim runtime behavior from text matches alone."
+        "Finish with one or more positive claims, each bound to its own collected evidence "
+        "IDs. Put uncertainty in limitations; never claim runtime behavior from text matches."
     )
     arguments_model = FinishArguments
 
     def execute(self, repo_path: Path, arguments: ToolArguments) -> ToolObservation:
         assert isinstance(arguments, FinishArguments)
         return ToolObservation(
-            content=arguments.answer,
+            content=arguments.render_answer(),
             metadata={"evidence_ids": arguments.evidence_ids},
         )
 
@@ -228,12 +284,18 @@ class ToolRegistry:
     def execute(
         self, name: str, repo_path: Path, arguments: dict[str, object]
     ) -> ToolObservation:
+        tool, validated = self.validate(name, arguments)
+        return tool.execute(repo_path, validated)
+
+    def validate(
+        self, name: str, arguments: dict[str, object]
+    ) -> tuple[RuntimeTool, ToolArguments]:
         tool = self._tools.get(name)
         if tool is None:
             available = ", ".join(sorted(self._tools))
             raise ToolExecutionError(f"unknown tool {name!r}; available: {available}")
         validated = tool.validate(arguments)
-        return tool.execute(repo_path, validated)
+        return tool, validated
 
     def fingerprint(self, name: str, arguments: dict[str, object]) -> str:
         comparable = {key: value for key, value in arguments.items() if key != "reason"}

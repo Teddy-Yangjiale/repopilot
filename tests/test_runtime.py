@@ -7,6 +7,7 @@ import pytest
 from repopilot.runtime.models import AgentDecision, AgentRun, AgentRunStatus, AgentStepStatus
 from repopilot.runtime.service import AgentService
 from repopilot.runtime.store import AgentRunStore
+from repopilot.runtime.tooling import ToolRegistry
 
 
 class SearchThenFinishPolicy:
@@ -20,8 +21,16 @@ class SearchThenFinishPolicy:
         return AgentDecision(
             tool_name="finish",
             arguments={
-                "answer": "ReActAgent is defined at the cited source location and stops on Finish.",
-                "evidence_ids": [run.evidence[0].id],
+                "claims": [
+                    {
+                        "statement": (
+                            "ReActAgent is defined at the cited source location "
+                            "and stops on Finish."
+                        ),
+                        "evidence_ids": [run.evidence[0].id],
+                    }
+                ],
+                "limitations": ["This source match alone does not prove every runtime path."],
                 "reason": "the source evidence is sufficient",
             },
             reason="the source evidence is sufficient",
@@ -42,8 +51,15 @@ class ForgedFinishPolicy:
         return AgentDecision(
             tool_name="finish",
             arguments={
-                "answer": "This answer is long enough but cites evidence that was never collected.",
-                "evidence_ids": ["ev-invented"],
+                "claims": [
+                    {
+                        "statement": (
+                            "This answer is long enough but cites evidence "
+                            "that was never collected."
+                        ),
+                        "evidence_ids": ["ev-invented"],
+                    }
+                ],
                 "reason": "attempt to finish",
             },
             reason="attempt to finish",
@@ -69,6 +85,27 @@ class InvalidReadPolicy:
         )
 
 
+class SearchThenStaleReadPolicy:
+    def decide(self, run: AgentRun, tool_schemas: list[dict]) -> AgentDecision:
+        if not run.steps:
+            return AgentDecision(
+                tool_name="search_code",
+                arguments={"keyword": "ReActAgent", "reason": "locate current lines"},
+                reason="locate current lines",
+            )
+        return AgentDecision(
+            tool_name="read_file",
+            arguments={
+                "path": "agent.py",
+                "line_start": 500,
+                "line_end": 550,
+                "focus_keyword": "ReActAgent",
+                "reason": "try a stale issue line range",
+            },
+            reason="try a stale issue line range",
+        )
+
+
 def build_service(tmp_path: Path, policy) -> AgentService:
     return AgentService(
         policy=policy,
@@ -87,6 +124,8 @@ def test_plan_act_observe_run_finishes_with_real_evidence(
     assert completed.status == AgentRunStatus.COMPLETED
     assert [step.decision.tool_name for step in completed.steps] == ["search_code", "finish"]
     assert completed.final_evidence_ids == [completed.evidence[0].id]
+    assert completed.final_claims[0].evidence_ids == [completed.evidence[0].id]
+    assert "This source match alone" in (completed.final_answer or "")
     assert completed.total_tokens == 0
     assert report.exists()
     assert "Action / Observation trajectory" in report.read_text(encoding="utf-8")
@@ -145,7 +184,7 @@ def test_failed_run_resumes_without_repeating_completed_search(
                 "focus_keyword": "secret",
                 "reason": "try an escaping path",
             },
-            "path escapes repository",
+            "was not discovered by search_code",
         ),
         (
             {
@@ -173,3 +212,32 @@ def test_invalid_tool_arguments_are_visible_observations(
     assert completed.status == AgentRunStatus.BUDGET_EXHAUSTED
     assert completed.steps[0].status == AgentStepStatus.TOOL_ERROR
     assert expected_error in completed.steps[0].observation.content
+
+
+def test_tool_registry_still_enforces_repository_path_boundary(sample_repo: Path) -> None:
+    with pytest.raises(ValueError, match="path escapes repository"):
+        ToolRegistry.readonly_default().execute(
+            "read_file",
+            sample_repo,
+            {
+                "path": "../outside.txt",
+                "line_start": 1,
+                "line_end": 20,
+                "focus_keyword": "secret",
+                "reason": "exercise the repository boundary",
+            },
+        )
+
+
+def test_stale_read_range_is_relocated_to_current_search_hit(
+    sample_repo: Path, tmp_path: Path
+) -> None:
+    service = build_service(tmp_path, SearchThenStaleReadPolicy())
+    run = service.create(sample_repo, "Where is ReActAgent now?", max_steps=2)
+    completed, _ = service.execute(run)
+
+    assert completed.status == AgentRunStatus.BUDGET_EXHAUSTED
+    assert completed.steps[1].status == AgentStepStatus.SUCCEEDED
+    assert completed.steps[1].observation.metadata["relocated"] is True
+    assert "relocated stale range 500-550" in completed.steps[1].observation.content
+    assert completed.steps[1].observation.evidence[0].line_start == 1

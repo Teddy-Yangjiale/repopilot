@@ -2,7 +2,7 @@
 
 ## 1. 这次升级解决什么问题
 
-旧版 RepoPilot 的 Investigator、Planner、Verifier 是固定流水线：可靠、可评测，但模型不能根据上一轮观察动态选择下一步。v0.17 保留原有检索与引用门禁，新增一个独立的 Plan–Act–Observe 运行时，让项目同时具备“会自主调查”和“结果可验证”两种能力。
+旧版 RepoPilot 的 Investigator、Planner、Verifier 是固定流水线：可靠、可评测，但模型不能根据上一轮观察动态选择下一步。v0.18 保留原有检索与引用门禁，新增一个独立的 Plan–Act–Observe 运行时，让项目同时具备“会自主调查”和“结果可验证”两种能力。
 
 这不是把 LangChain 或 LangGraph 包一层。状态模型、工具协议、执行循环、预算控制、checkpoint 和轨迹报告都在仓库中直接实现，面试时可以沿真实调用链解释每个设计。
 
@@ -57,7 +57,9 @@ DeepSeekToolPolicy -- native tool schema --> AgentDecision
 - `search_code`：发现候选文件，并复用已评测的代码检索能力产生 Evidence。
 - `read_file`：读取最多 301 行；路径必须在仓库内，焦点关键词必须真实出现。
 - `git_history`：只读取指定路径的最近提交，使用参数数组启动 Git，不经过 shell。
-- `finish`：提交答案及 Evidence ID；只要出现未知 ID，运行时就拒绝完成。
+- `finish`：提交逐条 Claim→Evidence 绑定；只要任一 Claim 出现未知 ID，运行时就拒绝完成。
+
+DeepSeek 的动作选择使用原生 Tool Calling；停止条件满足后不再让模型选择工具，而是切换到 JSON Output finalizer。原因是实测 `deepseek-v4-flash` 在只暴露 `finish` 时仍可能返回历史工具。Finalizer 只接收筛选后的 Evidence inventory，输出结构化 claims，再由本地运行时执行引用门禁。
 
 工具越宽泛，模型的选择空间和安全风险越大。第一版只覆盖“仓库调查”需要的最小闭环，不开放任意 shell、Python 执行、写文件或 Git 修改。
 
@@ -74,9 +76,9 @@ DeepSeekToolPolicy -- native tool schema --> AgentDecision
 
 ## 6. 当前边界与下一阶段
 
-v0.17 可以诚实宣称：它是一个只读、可恢复、证据驱动的仓库调查 Agent Runtime。它还不能宣称自动改代码、在容器中安全执行测试，或达到 SWE-bench 级别的修复成功率。
+v0.18 可以诚实宣称：它是一个只读、可恢复、经过真实 Issue 小样本评测的证据驱动仓库调查 Agent Runtime。它还不能宣称自动改代码、在容器中安全执行测试，或达到 SWE-bench 级别的修复成功率。
 
-下一阶段应先建立 20–30 个真实问题的 Agent 评测集，报告完成率、引用有效率、平均步骤、token/延迟、恢复成功率和失败类型；数据稳定后，再新增隔离 worktree 中的 patch、build、test、diff 与 verifier 工具。
+当前已有 10 个无路径泄漏 OpenCV Issue 的 HEAD 小基准；下一阶段应扩展到 20–30 case，并在 PR base snapshot 上复测，同时增加 Claim 是否被证据语义充分支持的独立评测。数据稳定后，再新增隔离 worktree 中的 patch、build、test、diff 与 verifier 工具。
 
 ## 7. 60 秒面试讲法
 

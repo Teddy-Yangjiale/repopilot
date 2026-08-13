@@ -56,6 +56,13 @@ class AgentStep(BaseModel):
     started_at: datetime = Field(default_factory=utc_now)
 
 
+class CitedClaim(BaseModel):
+    """One positive answer claim and the exact evidence IDs asserted to support it."""
+
+    statement: str = Field(min_length=10, max_length=2_000)
+    evidence_ids: list[str] = Field(min_length=1, max_length=10)
+
+
 class AgentRun(BaseModel):
     run_id: str = Field(default_factory=lambda: uuid4().hex)
     repo_path: Path
@@ -66,6 +73,7 @@ class AgentRun(BaseModel):
     steps: list[AgentStep] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
     final_answer: str | None = None
+    final_claims: list[CitedClaim] = Field(default_factory=list)
     final_evidence_ids: list[str] = Field(default_factory=list)
     error: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
