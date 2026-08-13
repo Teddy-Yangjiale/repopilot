@@ -23,7 +23,11 @@ Question -> Investigator -> Planner -> Verifier -> Markdown Report
 cd /home/teddy/repopilot
 ./scripts/setup.sh
 
-# 分析任意本地 Git 仓库
+# 分析任意本地 Git 仓库（--repo 接受任何仓库，不限于特定语言或项目）
+.venv/bin/repopilot investigate \
+  --repo /home/teddy/repos/fastapi \
+  --question "How does FastAPI build the OpenAPI schema from dependencies?"
+# 关键词会自动按判别力提取；也可显式指定（优先级最高）：
 .venv/bin/repopilot investigate \
   --repo /home/teddy/hello-agents-lab/references/hello-agents-framework \
   --question "How does ReActAgent execute tools and stop?" \
@@ -39,7 +43,7 @@ cd /home/teddy/repopilot
 make api
 ```
 
-如果不传 `--keyword`，系统会从问题中提取英文标识符和较长的中文词片段。为了演示稳定，面试时建议显式传入 2～5 个领域关键词。
+如果不传 `--keyword`，系统会按判别力自动提取关键词（符号形状 + 标题保底 + 宏过滤 + 符号族去重），并在排序时对 vendored 依赖与文档/变更日志类文件做通用降权——这两类几乎从不是代码修复的目标位置，规则是通用约定，不针对任何单一仓库调参。
 
 ### 可选：使用 DeepSeek 扩展查询
 

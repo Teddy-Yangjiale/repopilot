@@ -184,3 +184,16 @@ def test_dataset_round_trips_through_jsonl(tmp_path: Path) -> None:
 
     assert [case.case_id for case in loaded] == ["repo-1", "repo-2"]
     assert loaded[0].gold_files == GOLD
+
+
+def test_documentation_files_are_demoted_but_not_hidden() -> None:
+    """docs/ and CHANGELOG are rarely the fix location; demote them without dropping."""
+    docs = search_result("parse", {"docs/en/docs/release-notes.md": 10})
+    src = search_result("parse", {"fastapi/routing.py": 8})
+
+    demoted = [file.path for file in rank_files([docs, src])]
+    disabled = [file.path for file in rank_files([docs, src], documentation_penalty=1.0)]
+
+    assert demoted[0] == "fastapi/routing.py"
+    assert disabled[0] == "docs/en/docs/release-notes.md"  # tie broken by path without the prior
+    assert "docs/en/docs/release-notes.md" in demoted  # demoted, not dropped

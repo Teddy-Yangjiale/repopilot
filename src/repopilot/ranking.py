@@ -24,9 +24,23 @@ DEFAULT_VENDORED_PENALTY = 0.1
 # BM25-style length-normalisation parameter: 0 disables, 0.75 is the standard BM25 value.
 LENGTH_NORM_B = 0.75
 
+# Documentation and changelog files: useful to *read*, but almost never the fix location
+# for a code question. These are general conventions (any repo may keep docs/ or a
+# CHANGELOG), deliberately not tuned to one repository.
+DOCUMENTATION_MARKERS = (
+    "/docs/", "/doc/", "/documentation/", "/manual/", "/wiki/",
+    "changelog", "release-notes", "release_notes", "history", "news",
+)
+DEFAULT_DOCUMENTATION_PENALTY = 0.3
+
 
 def is_vendored(path: str) -> bool:
     return any(part.lower() in VENDORED_DIRECTORIES for part in PurePosixPath(path).parts)
+
+
+def is_documentation(path: str) -> bool:
+    lowered = path.lower()
+    return any(marker in lowered for marker in DOCUMENTATION_MARKERS)
 
 
 def inverse_document_frequency(document_frequency: int, corpus_files: int) -> float:
@@ -63,6 +77,7 @@ def rank_files(
     *,
     use_idf: bool = True,
     vendored_penalty: float = DEFAULT_VENDORED_PENALTY,
+    documentation_penalty: float = DEFAULT_DOCUMENTATION_PENALTY,
     # Off by default: BM25 length normalisation assumes length ~ redundancy, which is
     # wrong for source trees where the big files ARE the implementation. Measured on the
     # OpenCV eval set it crashed Hit@10 0.750 -> 0.283 by demoting exactly those files.
@@ -101,16 +116,23 @@ def rank_files(
         for item in result.evidence:
             evidence_ids[item.path].append(item.id)
 
-    ranked = [
-        RankedFile(
-            path=path,
-            score=score * (vendored_penalty if is_vendored(path) else 1.0),
-            keyword_count=len(keywords[path]),
-            evidence_count=hit_counts[path],
-            evidence_ids=evidence_ids[path],
+    ranked = []
+    for path, score in scores.items():
+        if is_vendored(path):
+            score = score * vendored_penalty
+        elif is_documentation(path):
+            # Documentation demoted but not hidden: a changelog can be the right *next
+            # read*, it is just rarely the *fix location*.
+            score = score * documentation_penalty
+        ranked.append(
+            RankedFile(
+                path=path,
+                score=score,
+                keyword_count=len(keywords[path]),
+                evidence_count=hit_counts[path],
+                evidence_ids=evidence_ids[path],
+            )
         )
-        for path, score in scores.items()
-    ]
     # Path breaks ties so equal-scoring files stay in a reproducible order across machines.
     ranked.sort(key=lambda file: (-file.score, file.path))
     return ranked
