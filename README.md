@@ -123,6 +123,20 @@ Question ──▶ Investigator ──▶ Planner ──▶ Verifier ──▶ M
 | React | JS/TS | 30 | 0.425 | 0.533 | — | 0.520 |
 | Go 标准库 | Go | 20 | 0.296 | 0.400 | 0.200 | 0.429 |
 
+### LLM 扩展（hybrid）实测
+
+在 OpenCV 60 case 上对比 deterministic 与 `--use-llm`（DeepSeek 查询扩展）：
+
+| 指标 | deterministic | hybrid | 差异 |
+|---|---:|---:|---:|
+| Hit@10 | 0.767 | **0.817** | +0.050 |
+| MRR | 0.487 | **0.569** | +0.082 |
+| Hit@1 | 0.367 | **0.450** | +0.083 |
+| 无泄漏 Hit@10 | 0.654 | **0.692** | +0.038 |
+| 延迟 p50 | 0.66 s | 3.3 s | +5x |
+
+无泄漏子集同样提升，说明增量来自真实召回而非正文泄漏；代价是延迟与每 case 一次模型调用。
+
 ### OpenCV 三段迭代
 
 | 阶段 | Recall@10 | Hit@10 | MRR | 无泄漏 Hit@10 |
@@ -302,7 +316,7 @@ make demo     # 端到端演示
 - [x] 去 SDK 依赖（手写 OpenAI 兼容客户端）
 - [x] react 数据集（REST 挖掘：GraphQL search 对该仓库返回 0，改用 merged PR 的 closes 引用）
 - [ ] 定义加权性能优化（当前 ~7x 延迟）
-- [ ] LLM 查询扩展的增量评测（框架已备 `--use-llm` + 快速失败 + docs/LLM_EVAL.md，待真实 Key 跑数据）
+- [x] LLM 查询扩展的增量评测（hybrid Hit@10 0.767→0.817、MRR 0.487→0.569，延迟 5x）
 - [ ] GitHub Issue/PR/Review 作为新证据源
 
 ---

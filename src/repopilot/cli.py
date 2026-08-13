@@ -5,12 +5,17 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from dotenv import load_dotenv
 
 from repopilot.container import get_orchestrator
 from repopilot.query_expansion import LLMConfigurationError
 from repopilot.ranking import DEFAULT_VENDORED_PENALTY
 
 app = typer.Typer(help="Evidence-driven repository maintenance agent.")
+
+# Load .env at the CLI level so every command (not just the orchestrator-built ones)
+# can read LLM_* settings; load_dotenv is idempotent and override=False.
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
 
 
 @app.command()
