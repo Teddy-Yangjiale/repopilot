@@ -50,3 +50,26 @@ def test_enclosing_function_nested_picks_innermost(tmp_path: Path) -> None:
 
     assert fn is not None
     assert fn.name == "outer"
+
+
+def test_classify_lines_definition_vs_use(tmp_path: Path) -> None:
+    from repopilot.symbols import classify_lines
+
+    source = tmp_path / "d.cpp"
+    source.write_text(
+        "int add(int a, int b) {\n"   # line 1: signature -> definition
+        "    return a + b;\n"         # line 2: body -> use
+        "}\n"
+        "void caller() {\n"           # line 4: signature -> definition
+        "    add(1, 2);\n"            # line 5: body -> use
+        "}\n",
+        encoding="utf-8",
+    )
+
+    kinds = classify_lines(source, [1, 2, 4, 5, 99])
+
+    assert kinds[1] == "definition"
+    assert kinds[2] == "use"
+    assert kinds[4] == "definition"
+    assert kinds[5] == "use"
+    assert kinds[99] is None

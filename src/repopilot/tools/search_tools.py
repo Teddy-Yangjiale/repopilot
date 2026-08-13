@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from repopilot.models import Evidence
@@ -29,6 +29,9 @@ class FileMatches:
     path: str
     hit_lines: list[int]
     total_lines: int
+    # Subset of hit_lines that fall on a function signature (a definition hit), filled
+    # in by the investigator's tree-sitter pass when definition weighting is enabled.
+    definition_lines: list[int] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

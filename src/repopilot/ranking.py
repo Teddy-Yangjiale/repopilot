@@ -78,6 +78,10 @@ def rank_files(
     use_idf: bool = True,
     vendored_penalty: float = DEFAULT_VENDORED_PENALTY,
     documentation_penalty: float = DEFAULT_DOCUMENTATION_PENALTY,
+    # Each definition hit counts as (1 + definition_bonus) hits: a keyword landing on a
+    # function signature means the file *defines* the symbol, which is a far stronger
+    # localization signal than a body/use hit. 0 disables (default, measured separately).
+    definition_bonus: float = 0.0,
     # Off by default: BM25 length normalisation assumes length ~ redundancy, which is
     # wrong for source trees where the big files ARE the implementation. Measured on the
     # OpenCV eval set it crashed Hit@10 0.750 -> 0.283 by demoting exactly those files.
@@ -102,8 +106,12 @@ def rank_files(
             inverse_document_frequency(len(result.matches), corpus_files) if use_idf else 1.0
         )
         for match in result.matches:
+            definition_lines = getattr(match, "definition_lines", None) or []
+            definition_hits = len(definition_lines)
+            use_hits = len(match.hit_lines) - definition_hits
+            effective_hits = use_hits + definition_hits * (1.0 + definition_bonus)
             tf = term_weight(
-                len(match.hit_lines),
+                effective_hits,
                 match.total_lines if use_length_norm else 0,
                 avg_lines if use_length_norm else 0.0,
             )

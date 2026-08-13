@@ -122,6 +122,13 @@ def run_eval(
             help="Feed hit lines' enclosing function names back into the search to recall callers.",
         ),
     ] = False,
+    definition_bonus: Annotated[
+        float,
+        typer.Option(
+            min=0.0, max=5.0,
+            help="Extra weight per definition hit (hit on a function signature); 0 disables.",
+        ),
+    ] = 0.0,
 ) -> None:
     """Score retrieval against a dataset and write a reproducible report."""
     from repopilot.agents import InvestigatorAgent
@@ -153,6 +160,7 @@ def run_eval(
         vendored_penalty=vendored_penalty,
         use_length_norm=length_norm,
         refine_symbols=refine_symbols,
+        definition_bonus=definition_bonus,
     )
 
     results = []
@@ -169,6 +177,7 @@ def run_eval(
             "prior" if vendored_penalty < 1.0 else "",
             "len" if length_norm else "",
             "sym" if refine_symbols else "",
+            "def" if definition_bonus > 0 else "",
         )
         if part
     ) or "none"

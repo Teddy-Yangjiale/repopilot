@@ -9,7 +9,7 @@ from repopilot.models import (
 )
 from repopilot.query_expansion import HybridQueryExpander
 from repopilot.ranking import DEFAULT_VENDORED_PENALTY, rank_files
-from repopilot.symbols import enclosing_function
+from repopilot.symbols import classify_lines, enclosing_function
 from repopilot.tools.search_tools import CodeSearchTool, SearchRequest, SearchResult
 
 # Function names too generic to act as a discriminating symbol for caller recall.
@@ -39,6 +39,9 @@ class InvestigatorAgent:
         # search as refined keywords, recalling callers via the text search. Off by
         # default and exposed for evaluation ablation.
         refine_symbols: bool = False,
+        # When > 0, hit lines on a function signature (definition hits) weigh extra in
+        # ranking; the tree-sitter pass annotates FileMatches.definition_lines.
+        definition_bonus: float = 0.0,
         max_ranked_files: int = 50,
     ) -> None:
         self.search_tool = search_tool
@@ -51,6 +54,7 @@ class InvestigatorAgent:
         self.vendored_penalty = vendored_penalty
         self.use_length_norm = use_length_norm
         self.refine_symbols = refine_symbols
+        self.definition_bonus = definition_bonus
         # Every file matching any keyword is scored, but the tail is not worth persisting to
         # SQLite or returning over HTTP on every request.
         self.max_ranked_files = max_ranked_files
@@ -83,6 +87,9 @@ class InvestigatorAgent:
 
         if self.refine_symbols:
             results = results + self._refine_symbols(state, results)
+
+        if self.definition_bonus > 0:
+            results = self._annotate_definitions(state, results)
 
         state.evidence = self._deduplicate_evidence(results)
         state.ranked_files = self._rank(results, {item.id for item in state.evidence})
@@ -128,6 +135,25 @@ class InvestigatorAgent:
             for name in names
         ]
 
+    def _annotate_definitions(
+        self, state: TaskState, results: list[SearchResult]
+    ) -> list[SearchResult]:
+        """Annotate each file match with the hit lines that are function definitions."""
+        from dataclasses import replace
+
+        annotated: list[SearchResult] = []
+        for result in results:
+            new_matches = []
+            for match in result.matches:
+                lines = match.hit_lines[:6]
+                classification = classify_lines(state.repo_path / match.path, lines)
+                definition_lines = [
+                    line for line in lines if classification.get(line) == "definition"
+                ]
+                new_matches.append(replace(match, definition_lines=definition_lines))
+            annotated.append(replace(result, matches=new_matches))
+        return annotated
+
     def _deduplicate_evidence(self, results: list[SearchResult]) -> list[Evidence]:
         """The same keyword hitting the same line range is one piece of evidence.
 
@@ -156,6 +182,7 @@ class InvestigatorAgent:
             use_idf=self.use_idf,
             vendored_penalty=self.vendored_penalty,
             use_length_norm=self.use_length_norm,
+            definition_bonus=self.definition_bonus,
         )[: self.max_ranked_files]
         for file in ranked:
             file.evidence_ids = [item for item in file.evidence_ids if item in surviving_ids]
